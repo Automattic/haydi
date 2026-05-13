@@ -1,0 +1,1933 @@
+/* ==========================================================================
+   Haydi — Admin Styles
+   ========================================================================== */
+
+/* Layout ------------------------------------------------------------------ */
+.wpc-wrap {
+    max-width: 100%;
+}
+
+.wpc-page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.wpc-page-header__title {
+    margin: 0;
+    padding: 0;
+    font-size: 23px;
+    font-weight: 400;
+    color: #1d2327;
+}
+
+.wpc-page-header__subtitle {
+    font-size: 13px;
+    font-weight: 400;
+    color: #757575;
+    margin-left: 8px;
+}
+
+.wpc-page-header__actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.wpc-header-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 14px;
+    height: 36px;
+    border: 1px solid #c3c4c7;
+    border-radius: 6px;
+    background: #fff;
+    color: #1d2327;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    line-height: 1;
+    white-space: nowrap;
+    text-decoration: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.wpc-header-btn:hover {
+    border-color: #8c8f94;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    color: #1d2327;
+}
+
+.wpc-header-btn:focus-visible {
+    outline: 2px solid #2271b1;
+    outline-offset: 2px;
+}
+
+.wpc-header-btn .dashicons {
+    width: 16px;
+    height: 16px;
+    font-size: 16px;
+    flex-shrink: 0;
+}
+
+.wpc-header-btn--primary {
+    background: #2271b1;
+    border-color: #2271b1;
+    color: #fff;
+}
+
+.wpc-header-btn--primary:hover {
+    background: #135e96;
+    border-color: #135e96;
+    color: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.wpc-workspace {
+    display: flex;
+    flex-direction: row;
+    gap: 12px;
+    /* Fill the viewport below the WP admin bar + page heading so the
+       workspace stretches to 100% of the available height now that the
+       audit log lives on its own page.  Subtracts admin bar (32px) +
+       h1 / margins / workspace top-margin (~80px). */
+    height: calc(100vh - 110px);
+    min-height: 500px;
+    margin-top: 16px;
+    background: transparent;
+}
+
+.wpc-main {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 8px rgba(0, 0, 0, 0.05);
+}
+
+/* Jetpack notice ---------------------------------------------------------- */
+.wpc-jetpack-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 14px 16px;
+    background: #f0f6fc;
+    border-bottom: 1px solid #c5d9ed;
+    position: relative;
+    flex-shrink: 0;
+}
+
+.wpc-jetpack-notice__icon {
+    font-size: 28px;
+    line-height: 1;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.wpc-jetpack-notice__body {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+}
+
+.wpc-jetpack-notice__body p {
+    margin: 0 0 6px;
+    color: #1d2327;
+}
+
+.wpc-jetpack-notice__body p:last-of-type {
+    color: #50575e;
+}
+
+.wpc-jetpack-notice__body ul {
+    margin: 0 0 10px;
+    padding-left: 18px;
+    color: #50575e;
+    list-style: disc;
+}
+
+.wpc-jetpack-notice__body li {
+    margin-bottom: 2px;
+}
+
+.wpc-jetpack-notice__dismiss {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #787c82;
+    font-size: 16px;
+    line-height: 1;
+    padding: 2px 4px;
+}
+
+.wpc-jetpack-notice__dismiss:hover {
+    color: #1d2327;
+}
+
+/* Welcome / onboarding modal ---------------------------------------------- */
+.wpc-welcome-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    z-index: 99999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.wpc-welcome-modal {
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+    max-width: 480px;
+    width: calc(100% - 40px);
+    padding: 32px;
+}
+
+.wpc-welcome-modal__header {
+    margin-bottom: 20px;
+}
+
+.wpc-welcome-modal__header h2 {
+    margin: 0 0 8px;
+    font-size: 22px;
+    font-weight: 600;
+    color: #1d2327;
+}
+
+.wpc-welcome-modal__subtitle {
+    margin: 0;
+    color: #50575e;
+    font-size: 14px;
+}
+
+.wpc-welcome-modal__body {
+    margin-bottom: 24px;
+}
+
+.wpc-welcome-tracks-label {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.wpc-welcome-tracks-label input[type="checkbox"] {
+    margin-top: 3px;
+    flex-shrink: 0;
+}
+
+.wpc-welcome-modal__footer {
+    display: flex;
+    justify-content: flex-end;
+}
+
+/* Panels ------------------------------------------------------------------ */
+.wpc-panel {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.wpc-panel__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: #f6f7f7;
+    border-bottom: 1px solid #eaebec;
+    font-size: 13px;
+    flex-shrink: 0;
+}
+
+.wpc-panel__body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+}
+
+.wpc-muted {
+    color: #8c8f94;
+    font-style: italic;
+    font-size: 12px;
+}
+
+.wpc-playground-preflight {
+    position: fixed;
+    width: 1px;
+    height: 1px;
+    border: 0;
+    opacity: 0;
+    pointer-events: none;
+    left: -9999px;
+    bottom: 0;
+}
+
+/* Proposal panel — a compact approval card docked above the composer while an
+   action is pending. Long diffs/code blocks scroll inside the card so the
+   controls stay close to the text box without taking over the chat. -------- */
+.wpc-panel--editor {
+    position: relative;
+    flex: none;
+    min-height: 0;
+    width: calc(100% - 48px);
+    max-width: 760px;
+    max-height: min(42vh, 420px);
+    margin: 8px 24px 4px;
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-radius: 8px;
+    box-shadow: 0 12px 28px rgba(29, 35, 39, 0.08), 0 2px 6px rgba(29, 35, 39, 0.06);
+    box-sizing: border-box;
+}
+
+.wpc-panel--editor .wpc-panel__header {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    z-index: 2;
+    justify-content: flex-start;
+    gap: 8px;
+    padding: 0;
+    background: transparent;
+    border-bottom: 0;
+    color: #1d2327;
+}
+
+.wpc-proposal-shell-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    border: 1px solid #dcdcde;
+    border-radius: 999px;
+    background: #fff;
+    color: #646970;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+.wpc-proposal-shell-title .dashicons {
+    width: 14px;
+    height: 14px;
+    font-size: 14px;
+    color: #50575e;
+}
+
+.wpc-panel--editor .wpc-panel__body {
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: #fff;
+}
+
+/* All proposal sections share the same base — they are siblings inside the
+   editor panel body and only one is visible at any time. The flex+min-height
+   pair lets the visible section claim the full panel body and lets its inner
+   diff/code/SQL block scroll instead of clipping. ------------------------- */
+#wpc-query-section,
+#wpc-delete-section,
+#wpc-move-section,
+#wpc-copy-section,
+#wpc-rmdir-section,
+#wpc-install-section,
+#wpc-activate-section,
+#wpc-deactivate-section,
+#wpc-php-section,
+#wpc-restore-section,
+#wpc-proposal-section {
+    flex: 1;
+    overflow: auto;
+    padding: 14px 14px 14px 17px;
+    min-height: 0;
+    border-top: 0;
+    background: var(--wpc-proposal-bg, #fff);
+    box-shadow: inset 3px 0 0 var(--wpc-proposal-accent, #2271b1);
+}
+
+/* Action risk accents.  The card stays quiet; the color only marks intent. */
+#wpc-query-section,
+#wpc-php-section {
+    --wpc-proposal-accent: #b26200;
+    --wpc-proposal-bg: #fffaf2;
+}
+
+#wpc-move-section,
+#wpc-copy-section,
+#wpc-install-section,
+#wpc-activate-section,
+#wpc-proposal-section {
+    --wpc-proposal-accent: #2271b1;
+    --wpc-proposal-bg: #f8fbff;
+}
+
+#wpc-delete-section,
+#wpc-rmdir-section,
+#wpc-deactivate-section {
+    --wpc-proposal-accent: #d63638;
+    --wpc-proposal-bg: #fff8f8;
+}
+
+/* Write proposal hosts a unified diff that should grow — make it a column
+   flex container so #wpc-diff-unified's flex: 1 actually expands. */
+#wpc-proposal-section {
+    display: flex;
+    flex-direction: column;
+}
+
+.wpc-proposal-header {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: #1d2327;
+    margin-right: 150px;
+    margin-bottom: 8px;
+    font-size: 13px;
+    line-height: 1.35;
+}
+
+.wpc-proposal-header .dashicons {
+    width: 16px;
+    height: 16px;
+    font-size: 16px;
+    color: var(--wpc-proposal-accent, #2271b1);
+}
+
+.wpc-proposal-file-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.wpc-proposal-filename {
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 14px;
+    font-weight: 600;
+    color: #1d2327;
+    background: none;
+    padding: 0;
+    word-break: break-all;
+}
+
+.wpc-proposal-badge {
+    flex-shrink: 0;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--wpc-proposal-accent, #2271b1);
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-radius: 999px;
+    padding: 2px 8px;
+    line-height: 1.6;
+}
+
+.wpc-proposal-dir {
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 11px;
+    color: #787c82;
+    margin: -2px 0 10px;
+    word-break: break-all;
+}
+
+.wpc-proposal-dir:empty {
+    display: none;
+}
+
+.wpc-proposal-path {
+    display: inline-block;
+    max-width: 100%;
+    box-sizing: border-box;
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 12px;
+    color: #3c434a;
+    margin: 0 0 8px;
+    padding: 4px 7px;
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-radius: 6px;
+    word-break: break-all;
+}
+
+.wpc-proposal-reason {
+    font-size: 13px;
+    color: #646970;
+    margin: 0 0 12px;
+    line-height: 1.5;
+}
+
+#wpc-install-reason {
+    display: none;
+}
+
+.wpc-diff-wrap {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.wpc-diff-label {
+    font-size: 11px;
+    font-weight: 600;
+    margin: 0 0 4px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: #50575e;
+}
+
+.wpc-diff {
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 11px;
+    line-height: 1.5;
+    overflow: auto;
+    max-height: 200px;
+    padding: 8px;
+    border-radius: 3px;
+    white-space: pre;
+    margin: 0;
+}
+
+.wpc-diff--before {
+    background: #fff0f0;
+    border: 1px solid #f5c2c7;
+}
+
+.wpc-diff--after {
+    background: #f0fff4;
+    border: 1px solid #c3e6cb;
+}
+
+.wpc-diff-unified {
+    flex: 1;
+    min-height: 0;
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 11px;
+    line-height: 1.5;
+    overflow: auto;
+    max-height: 300px;
+    padding: 0;
+    border-radius: 3px;
+    white-space: pre;
+    margin: 0 0 10px;
+    border: 1px solid #dcdcde;
+    background: #fff;
+}
+
+.wpc-diff-unified .wpc-dl-wrap {
+    min-width: max-content;
+}
+
+.wpc-diff-unified .wpc-dl {
+    display: block;
+    padding: 0 8px;
+    min-width: 100%;
+}
+
+.wpc-diff-unified .wpc-dl-add {
+    background: #e6ffec;
+    color: #1a7f37;
+}
+
+.wpc-diff-unified .wpc-dl-del {
+    background: #ffebe9;
+    color: #cf222e;
+}
+
+.wpc-diff-unified .wpc-dl-ctx {
+    color: #57606a;
+}
+
+.wpc-proposal-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding-top: 2px;
+}
+
+.wpc-proposal-actions .button {
+    min-height: 32px;
+    border-radius: 6px;
+    font-weight: 600;
+    padding: 0 12px;
+}
+
+.wpc-apply-status {
+    font-size: 12px;
+    color: #00a32a;
+}
+.wpc-apply-status.is-error {
+    color: #d63638;
+}
+
+#wpc-tokens-status.is-error {
+    color: #d63638;
+    font-style: normal;
+}
+
+/* Chat panel — fills whatever the proposal panel above does not claim. ---- */
+.wpc-panel--chat {
+    flex: 1;
+    min-height: 0;
+}
+
+.wpc-chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.wpc-message {
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    line-height: 1.5;
+    max-width: 90%;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.wpc-message--user {
+    background: #2271b1;
+    color: #fff;
+    align-self: flex-end;
+}
+
+.wpc-message--assistant {
+    background: #f6f7f7;
+    color: #1d2327;
+    align-self: flex-start;
+    border: 1px solid #c3c4c7;
+    white-space: normal;
+}
+
+.wpc-message--assistant a {
+    color: #2271b1;
+    text-decoration: underline;
+    word-break: break-all;
+}
+.wpc-message--assistant a:hover {
+    color: #135e96;
+}
+
+.wpc-message--assistant code {
+    background: #f0f0f1;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-family: Menlo, Consolas, monospace;
+    font-size: 12px;
+}
+
+.wpc-message--assistant pre {
+    background: #f0f0f1;
+    padding: 8px 10px;
+    border-radius: 3px;
+    margin: 6px 0;
+    overflow-x: auto;
+    font-family: Menlo, Consolas, monospace;
+    font-size: 12px;
+    white-space: pre;
+}
+.wpc-message--assistant pre code {
+    background: transparent;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
+}
+
+.wpc-message--assistant table {
+    border-collapse: collapse;
+    margin: 6px 0;
+    font-size: 13px;
+}
+.wpc-message--assistant table th,
+.wpc-message--assistant table td {
+    border: 1px solid #c3c4c7;
+    padding: 4px 8px;
+    text-align: left;
+    vertical-align: top;
+}
+.wpc-message--assistant table th {
+    background: #f0f0f1;
+    font-weight: 600;
+}
+
+.wpc-message--assistant h1,
+.wpc-message--assistant h2,
+.wpc-message--assistant h3 {
+    margin: 8px 0 4px;
+}
+.wpc-message--assistant h1 { font-size: 18px; }
+.wpc-message--assistant h2 { font-size: 16px; }
+.wpc-message--assistant h3 { font-size: 14px; }
+
+.wpc-message--assistant ul,
+.wpc-message--assistant ol {
+    margin: 4px 0;
+    padding-left: 20px;
+}
+.wpc-message--assistant ul { list-style-type: disc; }
+.wpc-message--assistant ol { list-style-type: decimal; }
+.wpc-message--assistant li { margin: 2px 0; }
+.wpc-message--assistant li p { margin: 0; }
+
+.wpc-message--assistant blockquote {
+    margin: 6px 0;
+    padding: 4px 10px;
+    border-left: 3px solid #c3c4c7;
+    color: #646970;
+}
+
+.wpc-message--assistant p { margin: 4px 0; }
+
+/* Suggestion chips — surfaced beneath the greeting on a fresh chat
+   so the user sees the breadth of capabilities at a glance. Removed from
+   the DOM as soon as the user sends or clicks one. -------------------------- */
+.wpc-suggestions {
+    align-self: flex-start;
+    max-width: 90%;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.wpc-suggestions__hint {
+    color: #646970;
+    font-size: 12px;
+    font-style: italic;
+}
+
+.wpc-suggestions__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.wpc-suggestion-chip {
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    border-radius: 16px;
+    padding: 5px 12px;
+    font-size: 12px;
+    line-height: 1.4;
+    color: #2271b1;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.wpc-suggestion-chip:hover {
+    background: #f0f6fc;
+    border-color: #2271b1;
+}
+
+.wpc-suggestion-chip:focus {
+    outline: 2px solid #2271b1;
+    outline-offset: 1px;
+}
+
+/* wpc-view: links render as buttons that expand an inline read-only viewer. */
+.wpc-view-toggle {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    color: #2271b1;
+    text-decoration: underline;
+    cursor: pointer;
+    word-break: break-all;
+}
+.wpc-view-toggle:hover {
+    color: #135e96;
+}
+
+.wpc-view-block {
+    align-self: stretch;
+    width: 100%;
+    margin-top: -4px;
+}
+.wpc-view-pre {
+    margin: 0;
+    padding: 12px 14px;
+    background: #1e1e2e;
+    color: #cdd6f4;
+    border: 1px solid #3e3e5e;
+    border-radius: 6px;
+    font-family: Menlo, Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    min-height: 120px;
+    max-height: 60vh;
+    overflow: auto;
+    white-space: pre;
+    tab-size: 4;
+}
+.wpc-view-pre.is-error {
+    background: #fff0f0;
+    color: #d63638;
+    border-color: #f5c2c7;
+}
+
+.wpc-message--error {
+    background: #fff0f0;
+    border: 1px solid #f5c2c7;
+    color: #d63638;
+}
+.wpc-btn-retry {
+    background: none;
+    border: 1px solid currentColor;
+    border-radius: 3px;
+    color: inherit;
+    cursor: pointer;
+    font-size: 11px;
+    padding: 1px 6px;
+    vertical-align: middle;
+}
+.wpc-btn-retry:hover {
+    background: rgba(214, 54, 56, 0.08);
+}
+
+.wpc-tool-activity {
+    align-self: flex-start;
+    max-width: 90%;
+    color: #50575e;
+    font-size: 12px;
+}
+
+.wpc-tool-activity summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 26px;
+    padding: 4px 9px;
+    border: 1px solid #dcdcde;
+    border-radius: 14px;
+    background: #fff;
+    cursor: pointer;
+    user-select: none;
+}
+
+.wpc-tool-activity summary::-webkit-details-marker {
+    display: none;
+}
+
+.wpc-tool-activity summary::after {
+    content: "▾";
+    color: #8c8f94;
+    font-size: 10px;
+}
+
+.wpc-tool-activity:not([open]) summary::after {
+    content: "▸";
+}
+
+.wpc-tool-activity .dashicons {
+    width: 14px;
+    height: 14px;
+    font-size: 14px;
+    line-height: 14px;
+    color: #2271b1;
+}
+
+.wpc-tool-activity__summary {
+    color: #646970;
+}
+
+.wpc-tool-activity__list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 6px;
+    padding: 8px 10px;
+    border: 1px solid #dcdcde;
+    border-radius: 6px;
+    background: #fbfbfc;
+}
+
+.wpc-tool-activity__item {
+    display: grid;
+    grid-template-columns: 8px minmax(0, 1fr);
+    gap: 8px;
+    align-items: start;
+}
+
+.wpc-tool-activity__dot {
+    width: 7px;
+    height: 7px;
+    margin-top: 6px;
+    border-radius: 50%;
+    background: #00a32a;
+}
+
+.wpc-tool-activity__item.is-error .wpc-tool-activity__dot {
+    background: #d63638;
+}
+
+.wpc-tool-activity__label {
+    color: #1d2327;
+    font-weight: 600;
+}
+
+.wpc-tool-activity__detail {
+    color: #646970;
+    overflow-wrap: anywhere;
+}
+
+.wpc-stream-progress {
+    align-self: flex-start;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    max-width: min(560px, 92%);
+    padding: 8px 10px;
+    border: 1px solid #dcdcde;
+    border-radius: 6px;
+    background: #fbfbfc;
+    color: #50575e;
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+.wpc-stream-progress__status {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: #1d2327;
+    font-weight: 600;
+}
+
+.wpc-stream-progress__status .wpc-spinner {
+    flex: 0 0 auto;
+}
+
+.wpc-stream-progress__status-text {
+    min-width: 0;
+}
+
+.wpc-stream-progress__activity:empty {
+    display: none;
+}
+
+.wpc-stream-progress__activity .wpc-tool-activity {
+    align-self: stretch;
+    max-width: 100%;
+}
+
+.wpc-chat-input-wrap {
+    padding: 8px 10px;
+    border-top: 1px solid #eaebec;
+    flex: 0 0 auto;
+}
+
+.wpc-attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 0 0 6px;
+}
+.wpc-attachment {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #f0f0f1;
+    border: 1px solid #c3c4c7;
+    border-radius: 3px;
+    font-size: 12px;
+    padding: 2px 6px;
+    color: #1d2327;
+}
+.wpc-attachment .dashicons {
+    font-size: 14px;
+    width: 14px;
+    height: 14px;
+    color: #646970;
+}
+.wpc-attachment-remove {
+    background: none;
+    border: none;
+    color: #646970;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0 0 0 2px;
+}
+.wpc-attachment-remove:hover {
+    color: #d63638;
+}
+
+.wpc-composer {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid #c3c4c7;
+    border-radius: 8px;
+    background: #fff;
+    overflow: hidden;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.wpc-composer:focus-within {
+    border-color: #8c8f94;
+    box-shadow: 0 0 0 1px #8c8f94;
+}
+
+.wpc-chat-input {
+    width: 100%;
+    box-sizing: border-box;
+    font-size: 13px;
+    resize: none;
+    min-height: 72px;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+    background: transparent;
+    padding: 12px 14px 6px;
+}
+
+.wpc-composer__bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 8px;
+}
+
+.wpc-composer__bar-left {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.wpc-send-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    border: none;
+    background: #2271b1;
+    color: #fff;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.15s;
+}
+
+.wpc-send-btn:hover:not(:disabled) {
+    background: #135e96;
+}
+
+.wpc-send-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.wpc-send-btn.wpc-btn-stop {
+    background: #d97706;
+}
+
+.wpc-send-btn.wpc-btn-stop:hover {
+    background: #b45309;
+}
+
+.wpc-chat-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px 8px;
+    font-size: 12px;
+    color: #50575e;
+    background: #f6f7f7;
+    border-top: 1px solid #eaebec;
+}
+
+/* ── Model selector ─────────────────────────────────────────────────────── */
+.wpc-model-menu {
+    position: relative;
+}
+.wpc-model-menu__button {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 26px;
+    max-width: 240px;
+    padding: 0 9px 0 7px;
+    border: 1px solid #dcdcde;
+    border-radius: 13px;
+    background: #fff;
+    color: #3c434a;
+    cursor: pointer;
+    font-size: 11.5px;
+    font-weight: 500;
+    line-height: 1;
+    transition: background 0.12s, border-color 0.12s, box-shadow 0.12s;
+}
+.wpc-model-menu__button:hover {
+    border-color: #8c8f94;
+    background: #f0f0f1;
+    box-shadow: none;
+    outline: none;
+}
+.wpc-model-menu__button:focus-visible {
+    border-color: #2271b1;
+    outline: 2px solid #2271b1;
+    outline-offset: 2px;
+    box-shadow: none;
+}
+.wpc-model-menu__button .dashicons {
+    width: 15px;
+    height: 15px;
+    font-size: 15px;
+    line-height: 15px;
+    color: #646970;
+}
+.wpc-model-menu__button .dashicons-arrow-up-alt2 {
+    width: 13px;
+    height: 13px;
+    font-size: 13px;
+    line-height: 13px;
+    transition: transform 0.18s ease;
+    transform: rotate(180deg);
+}
+.wpc-model-menu__button[aria-expanded="true"] .dashicons-arrow-up-alt2 {
+    transform: rotate(0deg);
+}
+#wpc-current-model-label {
+    overflow: hidden;
+    max-width: 150px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.wpc-model-menu__popover {
+    position: absolute;
+    left: 0;
+    bottom: calc(100% + 8px);
+    z-index: 21;
+    width: min(300px, calc(100vw - 48px));
+    max-height: 360px;
+    overflow: auto;
+    padding: 6px;
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-radius: 10px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.11), 0 1px 4px rgba(0, 0, 0, 0.07);
+}
+.wpc-model-menu__group + .wpc-model-menu__group {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid #f0f0f1;
+}
+.wpc-model-menu__provider {
+    padding: 4px 8px 3px;
+    color: #8c8f94;
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.wpc-model-menu__popover button {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    padding: 7px 8px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: #1d2327;
+    font-size: 12.5px;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.1s;
+}
+.wpc-model-menu__popover button:hover,
+.wpc-model-menu__popover button:focus {
+    background: #f0f0f1;
+    outline: none;
+}
+.wpc-model-menu__popover button.is-selected {
+    color: #135e96;
+    font-weight: 600;
+}
+.wpc-model-menu__model-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.wpc-model-menu__check {
+    flex: 0 0 auto;
+    width: 16px;
+    min-height: 16px;
+    color: #2271b1;
+}
+
+/* ── Auto-accept toggle ─────────────────────────────────────────────────── */
+.wpc-auto-accept-warning {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    background: #fcf9e8;
+    border-top: 1px solid #f0d060;
+    font-size: 12px;
+    color: #50460a;
+    flex-shrink: 0;
+}
+
+.wpc-auto-accept-warning .dashicons {
+    color: #b07e00;
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+}
+
+.wpc-auto-accept {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    cursor: pointer;
+    font-size: 11.5px;
+    color: #50575e;
+    user-select: none;
+}
+.wpc-auto-accept input[type="checkbox"] {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+    margin: 0;
+}
+.wpc-toggle {
+    position: relative;
+    display: inline-block;
+    flex-shrink: 0;
+    width: 30px;
+    height: 17px;
+    border-radius: 9px;
+    background: #c3c4c7;
+    cursor: pointer;
+    transition: background 0.15s ease-in-out;
+}
+.wpc-toggle::before {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform 0.15s ease-in-out;
+}
+.wpc-auto-accept input[type="checkbox"]:checked + .wpc-toggle {
+    background: #2271b1;
+}
+.wpc-auto-accept input[type="checkbox"]:checked + .wpc-toggle::before {
+    transform: translateX(13px);
+}
+.wpc-auto-accept input[type="checkbox"]:focus-visible + .wpc-toggle {
+    outline: 2px solid #2271b1;
+    outline-offset: 2px;
+}
+
+.wpc-icon-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #50575e;
+    padding: 2px;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+}
+.wpc-icon-btn:hover {
+    color: #2271b1;
+}
+.wpc-delete-header {
+    color: #1d2327;
+}
+
+.wpc-delete-header .dashicons {
+    color: #d63638;
+}
+
+.wpc-btn-danger {
+    background: #d63638 !important;
+    border-color: #b02a2c !important;
+    color: #fff !important;
+}
+.wpc-btn-danger:hover {
+    background: #b02a2c !important;
+}
+
+#wpc-query-sql {
+    background: #1e1e2e !important;
+    color: #cdd6f4 !important;
+    border: 1px solid #3e3e5e !important;
+    max-height: 160px;
+    overflow: auto;
+    margin-bottom: 0;
+}
+
+.wpc-technical-details {
+    margin: 0 0 10px;
+}
+
+.wpc-technical-details summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 9px;
+    border: 1px solid #dcdcde;
+    border-radius: 14px;
+    background: #fff;
+    color: #50575e;
+    font-size: 12px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.wpc-technical-details summary::-webkit-details-marker {
+    display: none;
+}
+
+.wpc-technical-details summary::after {
+    content: "▸";
+    color: #8c8f94;
+    font-size: 10px;
+}
+
+.wpc-technical-details[open] summary {
+    margin-bottom: 6px;
+}
+
+.wpc-technical-details[open] summary::after {
+    content: "▾";
+}
+
+/* Compaction summary ------------------------------------------------------- */
+.wpc-compact-summary {
+    margin: 4px 0 8px;
+}
+
+.wpc-compact-summary__toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 9px;
+    border: 1px solid #dcdcde;
+    border-radius: 14px;
+    background: #fff;
+    color: #50575e;
+    font-size: 12px;
+    cursor: pointer;
+    user-select: none;
+    list-style: none;
+}
+
+.wpc-compact-summary__toggle::-webkit-details-marker {
+    display: none;
+}
+
+.wpc-compact-summary__toggle::after {
+    content: "▸";
+    color: #8c8f94;
+    font-size: 10px;
+}
+
+.wpc-compact-summary[open] .wpc-compact-summary__toggle {
+    margin-bottom: 6px;
+}
+
+.wpc-compact-summary[open] .wpc-compact-summary__toggle::after {
+    content: "▾";
+}
+
+.wpc-compact-summary__body {
+    padding: 0 12px;
+    border-left: 3px solid #dcdcde;
+    font-size: 13px;
+    color: #3c434a;
+}
+
+/* Reusable tooltip icon --------------------------------------------------- */
+.wpc-tip {
+    position: relative;
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #c3c4c7;
+    color: #50575e;
+    font-size: 9px;
+    font-weight: 700;
+    font-style: normal;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 14px;
+    text-align: center;
+    cursor: help;
+    margin-left: 5px;
+    vertical-align: middle;
+    flex-shrink: 0;
+}
+
+.wpc-tip::before {
+    content: 'i';
+}
+
+.wpc-tip::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: calc(100% + 8px);
+    right: 0;
+    background: #1d2327;
+    color: #fff;
+    padding: 7px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: normal;
+    width: 200px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+    z-index: 9999;
+    text-align: left;
+    font-weight: 400;
+    font-style: normal;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, sans-serif;
+}
+
+.wpc-tip:hover::after,
+.wpc-tip:focus::after {
+    opacity: 1;
+}
+
+.wpc-tip:focus {
+    outline: 2px solid #2271b1;
+    outline-offset: 1px;
+}
+
+.wpc-floating-tooltip {
+    position: fixed;
+    background: #1d2327;
+    color: #fff;
+    padding: 7px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    line-height: 1.5;
+    width: 200px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+    z-index: 99999;
+    text-align: left;
+    font-weight: 400;
+    font-style: normal;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, sans-serif;
+    box-sizing: border-box;
+}
+
+.wpc-floating-tooltip.is-visible {
+    opacity: 1;
+}
+
+.wpc-session-stats .wpc-tip::after {
+    content: none;
+}
+
+/* Session stats card ------------------------------------------------------ */
+.wpc-session-stats {
+    padding: 4px 0;
+}
+
+.wpc-stat-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 7px 12px;
+    border-bottom: 1px solid #f0f0f1;
+    font-size: 12px;
+    cursor: default;
+}
+
+.wpc-stat-row:last-child {
+    border-bottom: none;
+}
+
+.wpc-stat-row__label {
+    color: #50575e;
+}
+
+.wpc-stat-row__value {
+    font-weight: 600;
+    color: #1d2327;
+    font-variant-numeric: tabular-nums;
+}
+
+#wpc-context-badge.is-warn .wpc-stat-row__value {
+    color: #996800;
+}
+
+#wpc-context-badge.is-danger .wpc-stat-row__value {
+    color: #b32d2e;
+}
+
+.wpc-stat-row--tokens {
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.wpc-advanced-settings {
+    border-bottom: 1px solid #f0f0f1;
+}
+
+.wpc-advanced-settings summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 7px 12px;
+    color: #50575e;
+    font-size: 12px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.wpc-advanced-settings summary::-webkit-details-marker {
+    display: none;
+}
+
+.wpc-advanced-settings summary::after {
+    content: "▸";
+    color: #8c8f94;
+    font-size: 10px;
+}
+
+.wpc-advanced-settings[open] summary {
+    border-bottom: 1px solid #f0f0f1;
+}
+
+.wpc-advanced-settings[open] summary::after {
+    content: "▾";
+}
+
+.wpc-advanced-settings .wpc-stat-row {
+    border-bottom: none;
+}
+
+.wpc-stat-row--toggle {
+    cursor: pointer;
+    gap: 8px;
+}
+
+.wpc-stat-row--toggle input {
+    margin-left: auto;
+}
+
+.wpc-max-tokens-input {
+    width: 80px;
+    padding: 2px 4px;
+    border: 1px solid #c3c4c7;
+    border-radius: 3px;
+    font-size: 12px;
+    text-align: right;
+    color: #1d2327;
+}
+
+.wpc-max-tokens-input:focus {
+    border-color: #2271b1;
+    outline: none;
+    box-shadow: 0 0 0 1px #2271b1;
+}
+
+#wpc-tokens-status {
+    font-size: 11px;
+    flex-basis: 100%;
+    padding: 0 0 2px;
+}
+
+#wpc-playground-status {
+    font-size: 11px;
+}
+
+.wpc-session-actions {
+    display: flex;
+    gap: 6px;
+    padding: 8px 12px;
+}
+
+.wpc-session-action-btn {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 5px 8px;
+    border: 1px solid #c3c4c7;
+    border-radius: 4px;
+    background: #fff;
+    color: #50575e;
+    font-size: 11px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: border-color 0.12s, color 0.12s;
+}
+
+.wpc-session-action-btn:hover {
+    border-color: #8c8f94;
+    color: #1d2327;
+}
+
+.wpc-session-action-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.wpc-session-action-btn .dashicons {
+    width: 14px;
+    height: 14px;
+    font-size: 14px;
+    line-height: 14px;
+}
+
+/* Audit trail entries ----------------------------------------------------- */
+.wpc-audit-entry {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 5px 12px;
+    border-bottom: 1px solid #f0f0f1;
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+.wpc-audit-entry:last-of-type {
+    border-bottom: none;
+}
+
+.wpc-audit-entry__action {
+    flex-shrink: 0;
+    font-weight: 600;
+    color: #2271b1;
+    min-width: 52px;
+}
+
+.wpc-audit-entry__meta {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    gap: 1px;
+}
+
+.wpc-audit-entry__path {
+    color: #1d2327;
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-size: 10px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.wpc-audit-entry__time {
+    color: #8c8f94;
+    font-size: 10px;
+}
+
+.wpc-audit-footer {
+    padding: 8px 12px;
+    border-top: 1px solid #eaebec;
+    border-radius: 0 0 8px 8px;
+    font-size: 11px;
+    text-align: center;
+}
+
+.wpc-audit-footer a {
+    color: #2271b1;
+    text-decoration: none;
+}
+
+.wpc-audit-footer a:hover {
+    text-decoration: underline;
+}
+
+/* Per-turn token caption. Normally rendered inline at the tail of the
+   assistant timestamp; the standalone block form below is the legacy
+   fallback when no timestamp is present to attach to. */
+.wpc-message-usage {
+    font-variant-numeric: tabular-nums;
+}
+div.wpc-message-usage {
+    align-self: flex-start;
+    margin-top: -4px;
+    padding: 0 4px;
+    font-size: 11px;
+    color: #646970;
+    line-height: 1.4;
+}
+
+/* Timestamp caption rendered immediately below each chat bubble. */
+.wpc-message-time {
+    margin-top: -6px;
+    padding: 0 4px;
+    font-size: 10px;
+    color: #8c8f94;
+    line-height: 1.4;
+    font-variant-numeric: tabular-nums;
+}
+
+.wpc-message-time--user  { align-self: flex-end; }
+.wpc-message-time--assistant,
+.wpc-message-time--error { align-self: flex-start; }
+
+.wpc-message-copy {
+    background: none;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    color: inherit;
+    cursor: pointer;
+    line-height: 0;
+    vertical-align: -2px;
+    opacity: 0.55;
+    transition: opacity 120ms ease, color 120ms ease;
+}
+.wpc-message-copy:hover  { opacity: 1; color: #2271b1; }
+.wpc-message-copy:focus-visible {
+    opacity: 1;
+    outline: 1px solid #2271b1;
+    outline-offset: 2px;
+}
+.wpc-message-copy.is-copied {
+    opacity: 1;
+    color: #008a20;
+    cursor: default;
+}
+
+/* Audit log --------------------------------------------------------------- */
+.wpc-audit-section {
+    margin-top: 24px;
+}
+
+.wpc-audit-header {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    margin-bottom: 8px;
+}
+
+.wpc-audit-table {
+    font-size: 12px;
+}
+.wpc-audit-path {
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-size: 11px;
+    word-break: break-all;
+}
+
+/* Utility ----------------------------------------------------------------- */
+.wpc-hidden {
+    display: none !important;
+}
+
+/* Chat history panel ---------------------------------------------- */
+
+.wpc-history-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    cursor: pointer;
+    border-bottom: 1px solid #f0f0f1;
+    font-size: 12px;
+    gap: 8px;
+}
+.wpc-history-item:hover,
+.wpc-history-item:focus {
+    background: #f0f6fc;
+}
+.wpc-history-item:focus {
+    outline: 2px solid #2271b1;
+    outline-offset: -2px;
+}
+.wpc-history-item--active {
+    background: #d0e6f7;
+}
+
+.wpc-history-item__text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.wpc-history-item__title {
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #1d2327;
+}
+
+.wpc-history-item__date {
+    color: #8c8f94;
+    font-size: 11px;
+}
+
+.wpc-history-delete {
+    flex-shrink: 0;
+    color: #8c8f94 !important;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+.wpc-history-item:hover .wpc-history-delete,
+.wpc-history-item:focus-within .wpc-history-delete,
+.wpc-history-delete:focus {
+    opacity: 1;
+}
+.wpc-history-delete:hover {
+    color: #d63638 !important;
+}
+
+/* Sidebar ----------------------------------------------------------------- */
+.wpc-sidebar {
+    display: flex;
+    flex-direction: column;
+    width: 260px;
+    flex-shrink: 0;
+    gap: 12px;
+    overflow: hidden;
+    background: #f6f7f7;
+    border-radius: 8px;
+}
+
+.wpc-sidebar-card {
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 8px rgba(0, 0, 0, 0.05);
+    flex-shrink: 0;
+}
+
+.wpc-sidebar-card__header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    background: #f6f7f7;
+    border-bottom: 1px solid #eaebec;
+    font-size: 12px;
+    border-radius: 8px 8px 0 0;
+}
+
+.wpc-sidebar-card__header .dashicons {
+    width: 14px;
+    height: 14px;
+    font-size: 14px;
+    color: #646970;
+}
+
+.wpc-sidebar-card__header-link {
+    margin-left: auto;
+    font-size: 11px;
+    font-weight: 400;
+    color: #2271b1;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.wpc-sidebar-card__header-link:hover {
+    text-decoration: underline;
+    color: #135e96;
+}
+
+.wpc-sidebar-card__body {
+    overflow-y: auto;
+    max-height: 280px;
+    border-radius: 0 0 8px 8px;
+}
+
+/* Session stats has no scrollable content and contains tooltips that must
+   escape the card — overflow:visible lets ::after pseudo-elements render
+   outside the card bounds (overflow-y:auto would force overflow-x to auto too). */
+.wpc-sidebar-card__body.wpc-session-stats {
+    overflow: visible;
+    max-height: none;
+}
+
+.wpc-sidebar-empty {
+    padding: 10px 12px;
+    margin: 0;
+    font-size: 12px;
+}
+
+.wpc-sidebar-cap-warning {
+    padding: 6px 12px 10px;
+    margin: 0;
+    font-size: 11px;
+    color: #787c82;
+    border-top: 1px solid #f0f0f1;
+}
+
+/* Mobile layout ----------------------------------------------------------- */
+@media (max-width: 600px) {
+    .wpc-panel__header {
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .wpc-panel--editor {
+        width: calc(100% - 24px);
+        margin: 8px 12px 4px;
+    }
+
+    .wpc-panel--editor .wpc-panel__header {
+        position: static;
+        padding: 10px 12px 0;
+        background: var(--wpc-proposal-bg, #fff);
+    }
+
+    .wpc-proposal-header {
+        margin-right: 0;
+    }
+
+    .wpc-diff-wrap {
+        grid-template-columns: 1fr;
+    }
+
+    .wpc-sidebar {
+        display: none;
+    }
+}
+
+/* Spinner while loading --------------------------------------------------- */
+.wpc-spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #c3c4c7;
+    border-top-color: #2271b1;
+    border-radius: 50%;
+    animation: wpc-spin 0.7s linear infinite;
+    vertical-align: middle;
+}
+@keyframes wpc-spin {
+    to { transform: rotate(360deg); }
+}

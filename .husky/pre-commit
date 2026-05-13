@@ -1,0 +1,9 @@
+#\!/bin/sh
+# Pre-commit: lint staged JS (ESLint) and PHP (phpcs / WordPress Coding Standards).
+
+if [ \! -f vendor/bin/phpcs ]; then
+  echo "PHP_CodeSniffer not found. Run: composer install"
+  exit 1
+fi
+
+npx lint-staged

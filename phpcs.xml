@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<ruleset name="Haydi">
+    <description>WordPress Coding Standards for Haydi</description>
+
+    <file>.</file>
+    <exclude-pattern>*/node_modules/*</exclude-pattern>
+    <exclude-pattern>*/vendor/*</exclude-pattern>
+    <exclude-pattern>*/tests/unit/*</exclude-pattern>
+
+    <arg name="extensions" value="php"/>
+    <arg name="colors"/>
+    <arg value="sp"/>
+
+    <rule ref="WordPress">
+        <!--
+            Our file naming convention (class-audit-logger.php, etc.) is intentional
+            and differs from the WPCS expectation of class-haydi-audit-logger.php.
+        -->
+        <exclude name="WordPress.Files.FileName.InvalidClassFileName"/>
+
+        <!--
+            Doc-comment requirements are not enforced: the methods already have
+            inline block comments where useful, and adding Squiz-style PHPDoc to
+            every method would be pure noise for this plugin size.
+        -->
+        <exclude name="Squiz.Commenting.FileComment.MissingPackageTag"/>
+        <exclude name="Squiz.Commenting.ClassComment.Missing"/>
+        <exclude name="Squiz.Commenting.FunctionComment.Missing"/>
+        <exclude name="Squiz.Commenting.FunctionComment.MissingParamTag"/>
+        <exclude name="Squiz.Commenting.FunctionComment.MissingReturn"/>
+        <exclude name="Generic.Commenting.DocComment.MissingShort"/>
+    </rule>
+
+    <config name="minimum_supported_wp_version" value="6.0"/>
+</ruleset>

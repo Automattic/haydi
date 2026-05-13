@@ -1,0 +1,1 @@
+This is a WordPress plugin that adds an agent to any installed WordPress site. The agent will be able to write code to add new plugins, update theme, or maybe even manage the site, such as updating settings or creating new posts.

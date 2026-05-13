@@ -1,0 +1,161 @@
+# Haydi — Your AI Autopilot
+
+Use any AI provider (via WordPress 7.0 Connectors) to inspect and modify
+WordPress files directly from WP-Admin — within strict guardrails. No shell,
+no SSH.
+
+Inspired by [Matt Mullenweg](https://ma.tt) to build this. Props to [Cem Ünalan](https://blog.cemunalan.com.tr/) for the original idea of a plugin-generating plugin.
+
+### UI
+
+The page is a single full-screen chat. There is no built-in file browser or editor — file references in the AI's replies are clickable and adapt to what your site actually allows:
+
+- If WordPress core's `plugin-editor.php` / `theme-editor.php` are available for the file type, the AI links straight to them so you can hand-edit in a new tab.
+- Otherwise (e.g. on managed hosts that set `DISALLOW_FILE_EDIT` or `DISALLOW_FILE_MODS`, or for files outside plugin/theme dirs), the link expands a read-only inline viewer below the message and the AI is told to point you at SFTP / WP-CLI / your local IDE for edits.
+
+A fresh chat greets you with a row of suggestion chips spanning the assistant's capabilities (one prompt each from file-ops, database, plugins, and PHP). Click a chip to drop the prompt into the input. The chips disappear once you send your first message, and a different set is rolled the next time you start a new chat.
+
+When the AI proposes a file change a panel slides in above the chat showing a unified diff against the live on-disk content (so the diff is always current, not whatever you happen to have open in another tab). The panel disappears as soon as you approve, reject, or move on.
+
+---
+
+## Configuration
+
+The AI assistant always has access to `wp-content/plugins/` and `wp-content/themes/`.
+Nothing else is ever accessible (not core, not `wp-config.php`, not `.htaccess`).
+
+Optionally create `wp-content/uploads/ai-edits/` as a scratch directory.
+
+If [Jetpack](https://jetpack.com/) is installed and connected, the plugin enriches the system prompt with site-specific context (stats, top posts, referrers, search terms, active modules, plan tier, speed scores, social connections, security data) so suggestions are tailored to the site rather than generic. Without Jetpack, a dismissable banner appears at the top of the chat panel pointing to install/connect; everything else still works.
+
+You can also launch the assistant from anywhere in WP-Admin via the command palette (Cmd/Ctrl+K → "Interact with AI").
+
+---
+
+## How it works
+
+```
+Browser                   PHP (this plugin)           AI Connector (WP Connectors)
+  │                             │                              │
+  │── user message ────────────►│                              │
+  │                             │── messages + tools ─────────►│
+  │                             │◄── tool_use (fetch/list/read)│
+  │                             │   [execute locally]          │
+  │                             │── tool_result ──────────────►│
+  │                             │  (loop until done or approval needed)
+  │                             │◄── tool_use (write / query / install …)
+  │                             │   [NOT executed yet]         │
+  │◄── pending proposal ────────│                              │
+  │   [diff, SQL, PHP, … + buttons]                            │
+  │── "Apply" / "Execute" ─────►│                              │
+  │                             │   [backup + write / execute] │
+  │◄── success ─────────────────│                              │
+```
+
+`fetch_url`, `list_files`, `read_file`, `search_files`, and `list_plugins` run automatically.
+Everything that mutates the filesystem, database, or plugin state always pauses for human approval.
+
+---
+
+## Tools
+
+| Tool | Auto? | What it does |
+|---|---|---|
+| `fetch_url(url)` | Yes | Fetches a public URL, strips HTML, truncates at 100 KB. Private IPs blocked. |
+| `list_files(path)` | Yes | Lists files/dirs inside an allowed root. |
+| `read_file(path)` | Yes | Reads a file (max 512 KB). |
+| `search_files(query, path, mode, extensions, max_results)` | Yes | Searches allowed file contents using PHP (no shell grep). Empty optional fields use safe defaults. |
+| `list_plugins()` | Yes | Lists all installed plugins with name, version, file path, and active status. |
+| `write_file(path, content, reason)` | **No** | Proposes a file change. You see a side-by-side diff before applying. |
+| `edit(filePath, oldString, newString, replaceAll, reason)` | **No** | Proposes an exact-string edit to an existing file. `oldString` must match once unless `replaceAll` is true. |
+| `delete_file(path, reason)` | **No** | Proposes deleting a file. A backup is created automatically. |
+| `move_file(src, dest, reason)` | **No** | Proposes moving/renaming a file. Source is backed up first. |
+| `copy_file(src, dest, reason)` | **No** | Proposes copying a file. Destination is backed up if it already exists. |
+| `delete_dir(path, reason)` | **No** | Proposes recursively deleting a directory. All files are backed up first. Root directories cannot be deleted. |
+| `run_query(sql, reason)` | **No** | Proposes SQL via `$wpdb`. You see the full query before it runs. |
+| `install_plugin(slug, reason)` | **No** | Proposes installing a plugin from WordPress.org by slug. |
+| `activate_plugin(plugin, reason)` | **No** | Proposes activating an installed plugin by file path. |
+| `deactivate_plugin(plugin, reason)` | **No** | Proposes deactivating an active plugin. |
+| `run_php(code, reason)` | **No** | Proposes executing a PHP snippet in the WordPress context. Output is captured and returned. |
+| `list_backups(path?)` | Yes | Lists backup files created by the plugin. Optionally filter by original file path. |
+| `restore_backup(backup_file, original_path, reason)` | **No** | Proposes restoring a file from a specific backup. Use `list_backups` first to find the backup filename. A new backup of the current file is created before restoring. |
+
+---
+
+## Workflows
+
+### 1. See a site → build a plugin
+
+```
+Fetch https://example.com/pricing and create a WordPress plugin that renders
+the same pricing table as a [pricing_table] shortcode.
+```
+
+The AI fetches the URL, reads the markup, proposes plugin files one at a time.
+You review each diff and click Apply.
+
+### 2. Modify an existing plugin
+
+Open a file in the browser panel, then describe the change:
+
+```
+Add a $limit parameter (default 10) to list_posts() and pass it to WP_Query.
+```
+
+The AI reads the file, proposes the updated version, you diff and apply.
+
+### 3. Reorganise plugin files
+
+```
+Rename class-old-name.php to class-new-name.php and update the class name inside it.
+```
+
+The AI reads the file, proposes a `move_file` to rename it, then a `write_file` with the updated class name. Each step requires your approval.
+
+### 4. Create and query a database table
+
+```
+Create a table called wmp_feedback (id, post_id, rating, comment, created_at)
+using the WordPress table prefix, then insert a test row.
+```
+
+Each `CREATE`, `INSERT`, or `SELECT` is shown to you before it runs.
+Results are fed back to the AI so it can continue automatically.
+
+### 5. Install and configure a plugin
+
+```
+Install and activate WooCommerce, then configure it for selling digital products.
+```
+
+The AI checks what is already installed (`list_plugins`), proposes installing WooCommerce, activating it, and then uses `run_php` or `run_query` to apply configuration — one approved step at a time.
+
+### 6. Restore a file from backup
+
+```
+My functions.php is broken after the last edit — restore it to the previous version.
+```
+
+The AI calls `list_backups` to find available backups for that file, presents what it found, and proposes `restore_backup`. A new backup of the current (broken) file is created first so the restore is itself reversible.
+
+---
+
+## Security
+
+| Control | Detail |
+|---|---|
+| Auth | `manage_options` + nonce on every request |
+| Path isolation | `realpath()` + allowlist on every read/write; nothing above ABSPATH |
+| Extension allowlist | `.php .css .js .json .txt .md .html` only |
+| File size cap | 512 KB reads/writes |
+| Dotfiles | Always skipped |
+| Backup | Timestamped `.bak` created before any write, delete, or move |
+| Backup dir | Protected with `.htaccess Deny from all`; filenames carry a random token so URLs are not enumerable on web servers that ignore `.htaccess` (Nginx, LiteSpeed) |
+| Post-mutation health check | After every approved write/delete/move/copy/activate/run_query/run_php, the plugin fires a loopback request to a dedicated health endpoint pinned to `127.0.0.1`. If the site is no longer responding, file ops auto-restore from backup and `activate_plugin` auto-deactivates. `delete_dir`, `run_query`, and `run_php` are detect-only (no automatic revert) and surface a recovery-mode message instead. PHP writes are also pre-validated with `token_get_all()` so syntax errors are caught before the file ever hits disk. |
+| Writes/deletes/moves/queries/installs | Require a human click by default. A session-only **Auto-accept** toggle can opt every proposal in until the page is reloaded. |
+| Audit log | All operations logged to `wp_options` |
+| API key | Managed via Settings → Connectors; never sent to browser |
+| `fetch_url` SSRF | Scheme must be `http`/`https`; every A and AAAA record is resolved and validated against private/loopback/link-local ranges; cURL is pinned to those IPs (defeats DNS rebinding); redirects are disabled (would re-resolve DNS); response body capped at 200 KB |
+| `run_query` | Full SQL shown before execution; SELECT results capped at 200 rows |
+| `install_plugin` | Slug validated against `^[a-z0-9][a-z0-9-]*$`; downloads only from WordPress.org API |
+| `run_php` | Full code shown before execution; output captured and returned |

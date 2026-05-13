@@ -1,0 +1,8 @@
+.claude/settings.local.json
+.phpunit.cache
+.wp-env/
+node_modules/
+test-results/
+vendor/
+dist/
+.wp-env.override.json

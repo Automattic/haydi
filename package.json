@@ -1,0 +1,40 @@
+{
+  "name": "haydi",
+  "version": "1.0.0",
+  "description": "WP Admin AI File Assistant (WordPress 7.0 Connectors)",
+  "private": true,
+  "scripts": {
+    "env:start": "wp-env start",
+    "env:stop": "wp-env stop",
+    "env:destroy": "wp-env destroy",
+    "env:logs": "wp-env logs",
+    "env:run": "wp-env run cli",
+    "test": "playwright test && npm run test:unit && npm run test:unit:php",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "test:unit": "jest",
+    "test:unit:php": "vendor/bin/phpunit",
+    "lint:js": "eslint assets/ tests/ playwright.config.js eslint.config.js",
+    "lint:php": "vendor/bin/phpcs",
+    "lint": "npm run lint:js && npm run lint:php",
+    "dist": "rm -rf dist && mkdir -p dist/haydi && cp -r admin assets includes haydi.php readme.txt LICENSE dist/haydi/ && terser dist/haydi/assets/admin.js -o dist/haydi/assets/admin.js --compress --mangle && cleancss dist/haydi/assets/admin.css -o dist/haydi/assets/admin.css && cd dist && zip -r haydi.zip haydi && rm -rf haydi && echo 'Created dist/haydi.zip'",
+    "release": "bash scripts/release.sh",
+    "gh:release": "bash scripts/gh-release.sh",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0",
+    "@wordpress/env": "^10.0.0",
+    "clean-css-cli": "^5.0.0",
+    "eslint": "^9.0.0",
+    "husky": "^9.0.0",
+    "jest": "^29.0.0",
+    "lint-staged": "^15.0.0",
+    "marked": "^18.0.3",
+    "terser": "^5.0.0"
+  },
+  "lint-staged": {
+    "*.js": "eslint",
+    "*.php": "vendor/bin/phpcs"
+  }
+}

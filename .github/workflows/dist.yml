@@ -1,0 +1,45 @@
+name: Build zip
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+
+jobs:
+  dist:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          tools: composer
+          coverage: none
+
+      - run: npm ci --no-audit --no-fund
+
+      - uses: ramsey/composer-install@v3
+
+      - run: npm run dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: haydi
+          path: dist/haydi.zip
+          retention-days: 30
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/haydi.zip

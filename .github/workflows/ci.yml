@@ -1,0 +1,137 @@
+name: CI
+
+on:
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          tools: composer
+          coverage: none
+
+      - run: npm ci --no-audit --no-fund
+
+      - uses: ramsey/composer-install@v3
+
+      - run: npm run lint
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          tools: composer
+          coverage: none
+
+      - run: npm ci --no-audit --no-fund
+
+      - uses: ramsey/composer-install@v3
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install chromium
+
+      - name: Cache wp-env downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/wp-env
+          key: wp-env-${{ runner.os }}-${{ hashFiles('.wp-env.json') }}
+
+      - name: Restore Docker image cache
+        id: docker-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/docker-cache
+          key: docker-cache-${{ runner.os }}-${{ hashFiles('.wp-env.json') }}
+
+      - name: Load cached Docker images
+        if: steps.docker-cache.outputs.cache-hit == 'true'
+        run: |
+          for f in ~/docker-cache/*.tar; do
+            docker load -i "$f"
+          done
+
+      - name: Snapshot Docker images before wp-env
+        if: steps.docker-cache.outputs.cache-hit != 'true'
+        run: docker images --format '{{.ID}}' | sort -u > /tmp/docker-images-before.txt
+
+      - name: Start wp-env
+        run: npm run env:start
+
+      - name: Save new Docker images for cache
+        if: steps.docker-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/docker-cache
+          docker images --format '{{.ID}}|{{.Repository}}:{{.Tag}}' | while IFS='|' read -r id name; do
+            [ "$name" = "<none>:<none>" ] && continue
+            grep -qx "$id" /tmp/docker-images-before.txt && continue
+            safe=$(echo "$name" | tr '/:' '__')
+            docker save "$name" -o ~/docker-cache/${safe}.tar
+          done
+
+      - name: Save Docker image cache
+        if: ${{ !cancelled() && steps.docker-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ~/docker-cache
+          key: docker-cache-${{ runner.os }}-${{ hashFiles('.wp-env.json') }}
+
+      - name: Wait for MariaDB to accept connections
+        run: |
+          for i in $(seq 1 60); do
+            if npx wp-env run cli wp db check > /dev/null 2>&1; then
+              echo "MariaDB ready (after ${i}s)"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "MariaDB did not accept connections within 60s" >&2
+          exit 1
+
+      - name: Ensure WordPress is installed
+        run: |
+          if ! npx wp-env run cli wp core is-installed > /dev/null 2>&1; then
+            echo "WordPress not installed — running wp core install"
+            npx wp-env run cli wp core install \
+              --url=http://localhost:9888 \
+              --title=haydi \
+              --admin_user=admin \
+              --admin_password=password \
+              --admin_email=admin@example.com \
+              --skip-email
+            npx wp-env run cli wp plugin activate \
+              ai-provider-for-anthropic \
+              ai-provider-for-google \
+              ai-provider-for-openai
+            npx wp-env run cli wp plugin activate haydi
+          else
+            echo "WordPress already installed"
+          fi
+
+      - run: npm run test
