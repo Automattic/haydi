@@ -30,6 +30,27 @@ If [Jetpack](https://jetpack.com/) is installed and connected, the plugin enrich
 
 You can also launch the assistant from anywhere in WP-Admin via the command palette (Cmd/Ctrl+K → "Interact with AI").
 
+### Remote Access (MCP / REST API)
+
+Generate an API token under **Advanced settings** in the Haydi sidebar (Tools → Haydi) to connect local AI tools directly to your site.
+
+**Claude Code** (and any MCP-compatible tool): add to `~/.claude/claude_code_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "haydi": {
+      "url": "https://yoursite.com/wp-json/haydi/v1/mcp",
+      "headers": { "Authorization": "Bearer <your-token>" }
+    }
+  }
+}
+```
+
+Claude Code can then use all Haydi tools (`haydi_list_files`, `haydi_write_file`, `haydi_run_php`, etc.) as MCP tools — no browser needed.
+
+The same token also works against the REST API directly: `GET /wp-json/haydi/v1/files`, `POST /wp-json/haydi/v1/query`, etc. Write operations execute immediately when authenticated via token (the token is the approval gate).
+
 ---
 
 ## How it works
@@ -159,3 +180,5 @@ The AI calls `list_backups` to find available backups for that file, presents wh
 | `run_query` | Full SQL shown before execution; SELECT results capped at 200 rows |
 | `install_plugin` | Slug validated against `^[a-z0-9][a-z0-9-]*$`; downloads only from WordPress.org API |
 | `run_php` | Full code shown before execution; output captured and returned |
+| Remote Access tokens | SHA-256 hash stored; plaintext shown once at generation; revocable from Advanced settings in the sidebar; Bearer token auth on all REST / MCP routes |
+| REST API write ops | Execute immediately when token-authenticated; same guard, health-check, backup, and audit-log machinery as browser-initiated changes |

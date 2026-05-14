@@ -47,6 +47,8 @@ vendor/bin/phpunit
 | `AjaxHandlersQueryTest` | `Haydi_Query_Tool::handle_execute_query` — SELECT/SHOW skip the loopback health check, UPDATE-style queries run it, unhealthy site after a write returns the recovery-mode warning |
 | `HealthCheckTest` | `Haydi_Health_Check` — `verify()` against healthy/empty/critical-error/`WP_Error` responses; `verify_or_revert()` skip-on-healthy + undo invocation + restore-success vs restore-failed message formatting; `verify_or_warn()` recovery-mode message |
 | `AjaxHandlersLinkingSectionTest` | `Haydi_Ajax_Handlers::build_linking_section` / `build_rule_10` — system-prompt linking guidance across the four `edit_plugins` / `edit_themes` cap combinations (both, plugins-only, themes-only, neither) |
+| `ApiTokenManagerTest` | covers generate/validate/list/revoke token lifecycle; wrong-length and unrecognized token rejection; prefix/label/created metadata; independent storage of multiple tokens |
+| `RestApiMcpTest` | covers MCP JSON-RPC routing in `handle_mcp()` — parse error, invalid request, initialize response, ping, tools/list shape, notifications (204), unknown method; `check_permission()` with valid Bearer token, invalid token, and WP session fallback |
 
 ### JS unit tests (no browser required)
 
@@ -81,6 +83,8 @@ Playwright tests against a live wp-env instance on `http://localhost:9888`. Cove
 - `activate_plugin` — path traversal, non-PHP extension, file-not-found rejection
 - `deactivate_plugin` — empty plugin rejection
 - `chat-pending.spec.js` — typing a new message while a pending proposal is outstanding cancels the proposal cleanly without orphaning a `tool_use` block
+- Token generation, REST API file/status operations with Bearer token auth
+- MCP initialize handshake, tools/list, tools/call, token revocation
 
 ### What is not yet covered by automated tests
 
@@ -88,6 +92,7 @@ Playwright tests against a live wp-env instance on `http://localhost:9888`. Cove
 - **`FilesystemGuard` write/delete/move/copy/`backup_dir_recursive`** — require `wp_mkdir_p` and `WP_Filesystem` stubs; the happy paths are exercised by the integration tests instead. (`restore_latest_backup` is unit-tested.)
 - **`handle_chat` rate-limit (429), `MAX_LOOP` exhaustion, `MAX_MESSAGES_BYTES` trim** — require a live AI connector to exercise the agentic loop.
 - **`Haydi_Fetch_Url_Tool::fetch()` cURL-pin (`CURLOPT_RESOLVE`) and `redirection => 0` behaviour** — require a live HTTP transport; pre-request validation is unit-tested.
+- **REST API write operations** (`write_file`, `edit_file`, `run_php`, etc.) via token auth are covered by integration tests; MCP tool execution for write tools is not yet unit-tested (requires filesystem + health-check stubs).
 
 ---
 
@@ -118,6 +123,11 @@ A few non-obvious conventions that make the code easier to extend:
 - **Two link schemes in chat.** `renderAssistantMarkdown()` only resolves `[label](url)` markdown when the URL begins with `/wp-admin/` (renders as `<a>` to core's plugin/theme editor) or `wpc-view:<absolute-path>` (renders as a button that lazily fetches via `haydi_read_file` and expands an inline read-only `<pre>` below the message). The system prompt is built per-request from `current_user_can('edit_plugins')` / `current_user_can('edit_themes')` — those caps already fold in `DISALLOW_FILE_EDIT`, `DISALLOW_FILE_MODS`, and multisite super-admin rules, so the AI is told to use `wpc-view:` whenever a core editor would 404 or fail capability checks.
 
 - **Suggestion chip pool.** `Haydi_Plugin::get_suggestion_pool()` returns a category-keyed array (`file`, `db`, `plugin`, `php`) of i18n prompts that is localised under `haydi.suggestions`. `pickSuggestionChips()` in `assets/admin.js` selects one entry per non-empty category for each fresh chat, so adding a prompt to one bucket only changes that bucket's rotation. Chips are removed from the DOM as soon as the user sends a message or loads an existing chat; they don't appear in `displayLog` and are never persisted.
+
+- **Remote Access architecture.**
+  - *Token manager:* plaintext shown once at generation, SHA-256 hash stored in `wp_options`; 64-char hex token (32 random bytes); prefix stored for UI display. `Haydi_Api_Token_Manager` handles generate/validate/list/revoke independently of any HTTP layer. The UI lives inside a "Remote access" `<details>` row inside the existing **Advanced settings** collapsible in the sidebar — not a separate card.
+  - *REST API:* `Haydi_Rest_Api` is instantiated at the bottom of `haydi.php` alongside `Haydi_Ajax_Handlers`; all routes share one `check_permission()` callback (Bearer token OR `manage_options`); write operations execute immediately (no pending-proposal round-trip) because the token itself is the approval gate.
+  - *MCP endpoint:* `POST /wp-json/haydi/v1/mcp` speaks the MCP Streamable HTTP transport (JSON-RPC 2.0); handles `initialize`, `ping`, `tools/list`, `tools/call`, and `notifications/*`; tool execution reuses the same guard/tool classes as the AJAX handlers via private `mcp_do_*` helpers.
 
 ---
 
@@ -186,6 +196,8 @@ haydi/
 │   ├── class-ai-client.php
 │   ├── class-chat-store.php  # list/save/load/delete + trim_messages_to_fit
 │   ├── class-ajax-handlers.php       # chat loop, system prompt, dispatch
+│   ├── class-api-token-manager.php   # generate/validate/list/revoke long-lived API tokens
+│   ├── class-rest-api.php            # REST API routes + MCP Streamable HTTP endpoint
 │   └── tools/
 │       ├── class-ajax-tool-base.php  # verify/post_param/require_param/dispatch_guard_result
 │       ├── class-file-tool.php       # read/write/delete/move/copy/delete_dir
@@ -221,6 +233,8 @@ haydi/
 │       ├── AjaxHandlersQueryTest.php
 │       ├── HealthCheckTest.php
 │       ├── AjaxHandlersLinkingSectionTest.php
+│       ├── ApiTokenManagerTest.php
+│       ├── RestApiMcpTest.php
 │       ├── stubs/
 │       │   └── JetpackStubs.php  # Stand-in Jetpack classes for the unit tests
 │       └── js/

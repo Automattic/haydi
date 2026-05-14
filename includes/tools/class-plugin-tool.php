@@ -54,34 +54,29 @@ class Haydi_Plugin_Tool extends Haydi_Ajax_Tool_Base {
 	}
 
 	// -------------------------------------------------------------------------
-	// AJAX handlers
+	// Service-layer execute methods (shared by AJAX, REST API, and MCP)
 	// -------------------------------------------------------------------------
 
 	/**
-	 * Install a plugin from WordPress.org after human approval.
+	 * Install a plugin from WordPress.org by slug.
+	 *
+	 * @param string $slug   WordPress.org plugin slug.
+	 * @param string $reason Audit log reason.
+	 * @return array|WP_Error Success payload or WP_Error on failure.
 	 */
-	public function handle_install_plugin(): void {
-		$this->verify();
-
-		$slug   = $this->post_param( 'slug' );
-		$reason = $this->post_param( 'reason' );
-
+	public function execute_install( string $slug, string $reason ): array|WP_Error {
 		if ( '' === $slug ) {
-			wp_send_json_error( array( 'message' => 'slug is required.' ) );
-			return;
+			return new WP_Error( 'missing_param', 'slug is required.', array( 'status' => 400 ) );
 		}
 
-		// Only allow lowercase alphanumeric slugs with hyphens.
 		if ( ! preg_match( '/^[a-z0-9][a-z0-9\-]*$/', $slug ) ) {
-			wp_send_json_error( array( 'message' => 'Invalid plugin slug.' ) );
-			return;
+			return new WP_Error( 'invalid_slug', 'Invalid plugin slug.', array( 'status' => 400 ) );
 		}
 
 		require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
 		require_once ABSPATH . 'wp-admin/includes/plugin-install.php';
 		require_once ABSPATH . 'wp-admin/includes/file.php';
 
-		// Fetch plugin info from WordPress.org API.
 		$api = plugins_api(
 			'plugin_information',
 			array(
@@ -95,16 +90,13 @@ class Haydi_Plugin_Tool extends Haydi_Ajax_Tool_Base {
 		);
 
 		if ( is_wp_error( $api ) ) {
-			wp_send_json_error( array( 'message' => 'Plugin not found on WordPress.org: ' . $api->get_error_message() ) );
-			return;
+			return new WP_Error( 'plugin_not_found', 'Plugin not found on WordPress.org: ' . $api->get_error_message(), array( 'status' => 400 ) );
 		}
 
-		// Initialise WP_Filesystem (FS_METHOD = direct on most managed hosts).
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_request_filesystem_credentials
 		$creds = request_filesystem_credentials( '', '', false, false, null );
 		if ( ! WP_Filesystem( $creds ) ) {
-			wp_send_json_error( array( 'message' => 'Could not initialise the WordPress filesystem.' ) );
-			return;
+			return new WP_Error( 'filesystem_error', 'Could not initialise the WordPress filesystem.', array( 'status' => 500 ) );
 		}
 
 		$skin     = new WP_Ajax_Upgrader_Skin();
@@ -112,8 +104,7 @@ class Haydi_Plugin_Tool extends Haydi_Ajax_Tool_Base {
 		$result   = $upgrader->install( $api->download_link );
 
 		if ( is_wp_error( $result ) ) {
-			wp_send_json_error( array( 'message' => 'Installation failed: ' . $result->get_error_message() ) );
-			return;
+			return new WP_Error( 'install_failed', 'Installation failed: ' . $result->get_error_message(), array( 'status' => 500 ) );
 		}
 
 		if ( false === $result || null === $result ) {
@@ -121,31 +112,117 @@ class Haydi_Plugin_Tool extends Haydi_Ajax_Tool_Base {
 			$msg    = ( is_wp_error( $errors ) && $errors->has_errors() )
 				? $errors->get_error_message()
 				: 'Installation failed for an unknown reason.';
-			wp_send_json_error( array( 'message' => $msg ) );
-			return;
+			return new WP_Error( 'install_failed', $msg, array( 'status' => 500 ) );
 		}
 
 		$plugin_file = $upgrader->plugin_info();
 
-		// Detect-only: an installed-but-inactive plugin should not be able to
-		// fatal the site, but a broken upgrader run can leave WP in a bad state
-		// (corrupt zip extraction, partial directory). Surface the failure
-		// loudly rather than auto-deleting plugin files we did not back up.
 		$err = $this->health->verify_or_warn( "Plugin install ({$slug})" );
 		if ( $err ) {
-			wp_send_json_error( array( 'message' => $err->get_error_message() ) );
-			return;
+			return new WP_Error( $err->get_error_code(), $err->get_error_message(), array( 'status' => 500 ) );
 		}
 
 		$this->logger->log( 'plugin_installed', $slug, $reason );
-
-		wp_send_json_success(
-			array(
-				'message'     => "Plugin '{$slug}' installed successfully.",
-				'plugin_file' => $plugin_file,
-				'slug'        => $slug,
-			)
+		return array(
+			'message'     => "Plugin '{$slug}' installed successfully.",
+			'plugin_file' => $plugin_file,
+			'slug'        => $slug,
 		);
+	}
+
+	/**
+	 * Activate an installed WordPress plugin.
+	 *
+	 * @param string $plugin Plugin file path (e.g. "woocommerce/woocommerce.php").
+	 * @param string $reason Audit log reason.
+	 * @return array|WP_Error Success payload or WP_Error on failure.
+	 */
+	public function execute_activate( string $plugin, string $reason ): array|WP_Error {
+		if ( '' === $plugin ) {
+			return new WP_Error( 'missing_param', 'plugin is required.', array( 'status' => 400 ) );
+		}
+
+		if ( ! self::is_valid_plugin_path( $plugin ) ) {
+			return new WP_Error( 'invalid_plugin', 'Invalid plugin file path.', array( 'status' => 400 ) );
+		}
+
+		if ( ! function_exists( 'activate_plugin' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+		}
+
+		if ( ! file_exists( WP_PLUGIN_DIR . '/' . $plugin ) ) {
+			return new WP_Error( 'plugin_not_found', "Plugin file not found: {$plugin}", array( 'status' => 400 ) );
+		}
+
+		$activate_result = activate_plugin( $plugin );
+		if ( is_wp_error( $activate_result ) ) {
+			return new WP_Error( $activate_result->get_error_code(), $activate_result->get_error_message(), array( 'status' => 500 ) );
+		}
+
+		$err = $this->health->verify_or_revert(
+			function () use ( $plugin ) {
+				deactivate_plugins( $plugin );
+				return true;
+			},
+			"Plugin activation ({$plugin})"
+		);
+		if ( $err ) {
+			return new WP_Error( $err->get_error_code(), $err->get_error_message(), array( 'status' => 500 ) );
+		}
+
+		$this->logger->log( 'plugin_activated', $plugin, $reason );
+		return array(
+			'message' => "Plugin '{$plugin}' activated successfully.",
+			'plugin'  => $plugin,
+		);
+	}
+
+	/**
+	 * Deactivate a WordPress plugin.
+	 *
+	 * @param string $plugin Plugin file path (e.g. "woocommerce/woocommerce.php").
+	 * @param string $reason Audit log reason.
+	 * @return array|WP_Error Success payload or WP_Error on failure.
+	 */
+	public function execute_deactivate( string $plugin, string $reason ): array|WP_Error {
+		if ( '' === $plugin ) {
+			return new WP_Error( 'missing_param', 'plugin is required.', array( 'status' => 400 ) );
+		}
+
+		if ( ! self::is_valid_plugin_path( $plugin ) ) {
+			return new WP_Error( 'invalid_plugin', 'Invalid plugin file path.', array( 'status' => 400 ) );
+		}
+
+		if ( ! function_exists( 'deactivate_plugins' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+		}
+
+		deactivate_plugins( $plugin );
+
+		$this->logger->log( 'plugin_deactivated', $plugin, $reason );
+		return array(
+			'message' => "Plugin '{$plugin}' deactivated successfully.",
+			'plugin'  => $plugin,
+		);
+	}
+
+	// -------------------------------------------------------------------------
+	// AJAX handlers
+	// -------------------------------------------------------------------------
+
+	/**
+	 * Install a plugin from WordPress.org after human approval.
+	 */
+	public function handle_install_plugin(): void {
+		$this->verify();
+		$slug   = $this->post_param( 'slug' );
+		$reason = $this->post_param( 'reason' );
+		$result = $this->execute_install( $slug, $reason );
+		if ( is_wp_error( $result ) ) {
+			wp_send_json_error( array( 'message' => $result->get_error_message() ) );
+			return;
+		}
+		wp_send_json_success( $result );
 	}
 
 	/**
@@ -158,42 +235,12 @@ class Haydi_Plugin_Tool extends Haydi_Ajax_Tool_Base {
 		$this->verify();
 		$plugin = $this->require_param( 'plugin' );
 		$reason = $this->post_param( 'reason' );
-
-		if ( ! self::is_valid_plugin_path( $plugin ) ) {
-			wp_send_json_error( array( 'message' => 'Invalid plugin file path.' ) );
+		$result = $this->execute_activate( $plugin, $reason );
+		if ( is_wp_error( $result ) ) {
+			wp_send_json_error( array( 'message' => $result->get_error_message() ) );
+			return;
 		}
-
-		if ( ! function_exists( 'activate_plugin' ) ) {
-			require_once ABSPATH . 'wp-admin/includes/plugin.php';
-		}
-
-		if ( ! file_exists( WP_PLUGIN_DIR . '/' . $plugin ) ) {
-			wp_send_json_error( array( 'message' => "Plugin file not found: {$plugin}" ) );
-		}
-
-		$this->dispatch_guard_result(
-			activate_plugin( $plugin ),
-			function () use ( $plugin, $reason ) {
-				$err = $this->health->verify_or_revert(
-					function () use ( $plugin ) {
-						deactivate_plugins( $plugin );
-						return true;
-					},
-					"Plugin activation ({$plugin})"
-				);
-				if ( $err ) {
-					wp_send_json_error( array( 'message' => $err->get_error_message() ) );
-					return;
-				}
-				$this->logger->log( 'plugin_activated', $plugin, $reason );
-				wp_send_json_success(
-					array(
-						'message' => "Plugin '{$plugin}' activated successfully.",
-						'plugin'  => $plugin,
-					)
-				);
-			}
-		);
+		wp_send_json_success( $result );
 	}
 
 	/**
@@ -203,25 +250,12 @@ class Haydi_Plugin_Tool extends Haydi_Ajax_Tool_Base {
 		$this->verify();
 		$plugin = $this->require_param( 'plugin' );
 		$reason = $this->post_param( 'reason' );
-
-		if ( ! self::is_valid_plugin_path( $plugin ) ) {
-			wp_send_json_error( array( 'message' => 'Invalid plugin file path.' ) );
+		$result = $this->execute_deactivate( $plugin, $reason );
+		if ( is_wp_error( $result ) ) {
+			wp_send_json_error( array( 'message' => $result->get_error_message() ) );
+			return;
 		}
-
-		if ( ! function_exists( 'deactivate_plugins' ) ) {
-			require_once ABSPATH . 'wp-admin/includes/plugin.php';
-		}
-
-		deactivate_plugins( $plugin );
-
-		$this->logger->log( 'plugin_deactivated', $plugin, $reason );
-
-		wp_send_json_success(
-			array(
-				'message' => "Plugin '{$plugin}' deactivated successfully.",
-				'plugin'  => $plugin,
-			)
-		);
+		wp_send_json_success( $result );
 	}
 
 	/**

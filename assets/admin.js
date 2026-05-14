@@ -3039,4 +3039,104 @@
         });
     }());
 
+    // -------------------------------------------------------------------------
+    // Remote Access — API token management
+    // -------------------------------------------------------------------------
+
+    (function initTokenManager() {
+        var $list    = $('#wpc-tokens-list');
+        var $display = $('#wpc-new-token-display');
+        var $value   = $('#wpc-new-token-value');
+        var $snippet = $('#wpc-mcp-config-snippet');
+
+        if (!$list.length) { return; }
+
+        function esc(str) {
+            return $('<span>').text(String(str)).html();
+        }
+
+        function renderTokens(tokens) {
+            if (!tokens || !tokens.length) {
+                $list.html('<p class="wpc-muted" style="font-size:12px;margin:0;">No tokens yet.</p>');
+                return;
+            }
+            var html = '';
+            tokens.forEach(function (t) {
+                var date = t.created ? new Date(t.created * 1000).toLocaleDateString() : '';
+                html += '<div style="display:flex;align-items:center;gap:4px;margin-bottom:4px;font-size:11px;">';
+                html += '<code style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(t.label) + '">' + esc(t.prefix) + '&hellip;</code>';
+                html += '<span class="wpc-muted" style="white-space:nowrap;">' + esc(t.label) + '</span>';
+                if (date) {
+                    html += '<span class="wpc-muted" style="white-space:nowrap;">' + esc(date) + '</span>';
+                }
+                html += '<button type="button" class="wpc-btn-revoke-token button button-link-delete" style="padding:0;" data-hash="' + esc(t.hash) + '">Revoke</button>';
+                html += '</div>';
+            });
+            $list.html(html);
+        }
+
+        function showNewToken(token) {
+            $value.text(token);
+            if ($snippet.length) {
+                var mcpUrl = $snippet.data('mcp-url') || (window.location.origin + '/wp-json/haydi/v1/mcp');
+                var config = JSON.stringify({
+                    mcpServers: {
+                        haydi: {
+                            type: 'http',
+                            url: mcpUrl,
+                            headers: { Authorization: 'Bearer ' + token }
+                        }
+                    }
+                }, null, 2);
+                $snippet.text(config);
+            }
+            $display.removeClass('wpc-hidden');
+        }
+
+        // Load existing tokens on page load.
+        post('haydi_list_tokens', {}, function (res) {
+            if (res.success) { renderTokens(res.data.tokens); }
+        });
+
+        // Generate a new token.
+        $('#wpc-btn-generate-token').on('click', function () {
+            var label = String($('#wpc-token-label').val() || '');
+            post('haydi_generate_token', { label: label }, function (res) {
+                if (res.success) {
+                    renderTokens(res.data.tokens);
+                    showNewToken(res.data.token);
+                    $('#wpc-token-label').val('');
+                }
+            });
+        });
+
+        // Copy the displayed token to the clipboard.
+        $('#wpc-btn-copy-token').on('click', function () {
+            var token = $value.text();
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(token).then(function () {
+                    var $btn = $('#wpc-btn-copy-token');
+                    $btn.text('Copied!');
+                    window.setTimeout(function () { $btn.text('Copy to clipboard'); }, 2000);
+                });
+            } else {
+                window.getSelection().selectAllChildren($value[0]);
+            }
+        });
+
+        // Revoke a token (event delegation so it works after re-render).
+        $list.on('click', '.wpc-btn-revoke-token', function () {
+            var hash = String($(this).data('hash') || '');
+            if (!hash || !window.confirm('Revoke this token? Any tool using it will lose access immediately.')) {
+                return;
+            }
+            post('haydi_revoke_token', { hash: hash }, function (res) {
+                if (res.success) {
+                    renderTokens(res.data.tokens);
+                    $display.addClass('wpc-hidden');
+                }
+            });
+        });
+    }());
+
 }(jQuery));

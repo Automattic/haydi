@@ -33,6 +33,8 @@ require_once HAYDI_DIR . 'includes/tools/class-php-tool.php';
 require_once HAYDI_DIR . 'includes/tools/class-fetch-url-tool.php';
 require_once HAYDI_DIR . 'includes/class-chat-store.php';
 require_once HAYDI_DIR . 'includes/class-ajax-handlers.php';
+require_once HAYDI_DIR . 'includes/class-api-token-manager.php';
+require_once HAYDI_DIR . 'includes/class-rest-api.php';
 
 /**
  * Main plugin bootstrap class.
@@ -300,3 +302,5 @@ final class Haydi_Plugin {
 new Haydi_Plugin();
 // AJAX handlers self-register via their constructor.
 new Haydi_Ajax_Handlers();
+// REST API self-registers via rest_api_init.
+new Haydi_Rest_Api();

@@ -1,6 +1,6 @@
 === Haydi ===
 Contributors: automattic, bor0, raicem
-Tags: ai, automation, assistant, site-management, chatbot
+Tags: ai, automation, assistant, site-management, mcp
 Requires at least: 7.0
 Tested up to: 7.0
 Stable tag: 1.0.0
@@ -34,6 +34,8 @@ All operations are recorded in an audit log accessible from within the chat inte
 
 **Jetpack integration:** when Jetpack is connected, the AI receives site-specific context — stats, top posts, referrers, active modules, plan tier, speed scores, and security data — so suggestions are tailored to your site rather than generic.
 
+**Remote access via MCP:** generate an API token under Advanced settings in the Haydi sidebar and connect local AI tools (Claude Code, Codex, and any MCP-compatible client) directly to your site — no browser required. The built-in MCP endpoint (`/wp-json/haydi/v1/mcp`) speaks the Model Context Protocol over HTTP, exposing all Haydi tools so a local AI can list files, run queries, install plugins, and more.
+
 **Command palette:** open Haydi from anywhere in WP-Admin with Cmd/Ctrl+K → "Interact with AI".
 
 **Requires WordPress 7.0** (uses the WordPress Connectors API to connect to AI providers). Configure your AI provider under Settings → Connectors.
@@ -64,6 +66,18 @@ Yes. When you send a message, your prompt and relevant site context (file conten
 By default, no. Every action that modifies your site — file writes, deletes, SQL queries, PHP execution, plugin installs — requires an explicit click to approve. Read-only operations run automatically.
 
 An **Auto-accept** toggle is available in the interface for users who want to let the AI apply a series of changes without pausing for each one. This setting is session-only and resets when the page is reloaded.
+
+When using the MCP or REST API with a token, write operations execute immediately — the API token itself is the approval gate, equivalent to a human clicking Apply. Tokens can be revoked at any time from Advanced settings in the Haydi sidebar.
+
+= How do I connect Claude Code or another AI tool via MCP? =
+
+1. Go to **Tools → Haydi** and open **Advanced settings** in the sidebar (expand the "Remote access" row).
+2. Enter an optional label and click **Generate**.
+3. Copy the token (shown once) and expand "Connect with Claude Code" to get the config snippet.
+4. Paste the snippet into `~/.claude/claude_code_config.json` (or the equivalent config for your MCP client).
+5. Restart your AI tool — it will appear as an MCP server named `haydi`.
+
+Tokens can be revoked from the same card at any time.
 
 = What happens if a change breaks my site? =
 
