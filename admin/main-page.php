@@ -530,7 +530,7 @@ $tracks_enabled     = (bool) get_option( 'haydi_enable_tracks', false );
 	</div><!-- /.wpc-workspace -->
 </div><!-- /.wrap -->
 
-<?php if ( ! get_option( 'wp_ai_builder_onboarded', false ) ) : ?>
+<?php if ( ! get_option( 'haydi_onboarded', false ) ) : ?>
 <div class="wpc-welcome-overlay" id="wpc-welcome-overlay" role="dialog" aria-modal="true" aria-labelledby="wpc-welcome-title">
 	<div class="wpc-welcome-modal">
 		<div class="wpc-welcome-modal__header">

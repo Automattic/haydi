@@ -755,7 +755,7 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 			? filter_var( wp_unslash( $_POST['enable_tracks'] ), FILTER_VALIDATE_BOOLEAN )
 			: false;
 		// phpcs:enable WordPress.Security.NonceVerification.Missing
-		update_option( 'wp_ai_builder_onboarded', 1, false );
+		update_option( 'haydi_onboarded', 1, false );
 		if ( $enable_tracks ) {
 			update_option( 'haydi_enable_tracks', 1, false );
 		}
