@@ -4,6 +4,7 @@
 .wp-env/
 node_modules/
 test-results/
+tests/playwright-auth.json
 vendor/
 dist/
 .wp-env.override.json

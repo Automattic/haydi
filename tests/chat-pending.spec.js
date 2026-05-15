@@ -11,11 +11,13 @@
  * test does not require a live AI endpoint.
  */
 const { test, expect } = require('@playwright/test');
+const path = require('path');
 
 const BASE       = 'http://localhost:9888';
-const LOGIN_URL  = `${BASE}/wp-login.php`;
 const PLUGIN_URL = `${BASE}/wp-admin/tools.php?page=haydi`;
 const TOOL_USE_ID = 'toolu_test_pending_query_42';
+// Session cookies saved by global-setup.js — reused so no per-test login is needed.
+const AUTH_FILE = path.join(__dirname, 'playwright-auth.json');
 
 function isChatAction(action) {
     return action === 'haydi_chat' || action === 'haydi_chat_stream';
@@ -23,7 +25,12 @@ function isChatAction(action) {
 
 async function setupPage(page) {
     const overlay = page.locator('#wpc-welcome-overlay');
-    if (await overlay.isVisible()) {
+    // count() checks DOM presence without a layout/visibility constraint, so it
+    // is reliable even before the browser finishes first paint.  isVisible() can
+    // return false in that window, leaving aria-modal="true" active and making
+    // everything outside the dialog inert — causing page.fill() to hang.
+    if (await overlay.count() > 0) {
+        await overlay.waitFor({ state: 'visible' });
         await page.click('#wpc-welcome-confirm');
         await overlay.waitFor({ state: 'detached' });
     }
@@ -63,14 +70,9 @@ function fulfillChat(route, action, data) {
 
 test.describe('Chat — pending proposal handling', () => {
     test('streaming tool activity stays collapsed with a single progress spinner', async ({ browser }) => {
-        const ctx  = await browser.newContext();
+        const ctx  = await browser.newContext({ storageState: AUTH_FILE });
         const page = await ctx.newPage();
 
-        await page.goto(LOGIN_URL);
-        await page.fill('#user_login', 'admin');
-        await page.fill('#user_pass', 'password');
-        await page.click('#wp-submit');
-        await page.waitForURL('**/wp-admin/**');
         await page.goto(PLUGIN_URL);
         await setupPage(page);
 
@@ -131,15 +133,9 @@ test.describe('Chat — pending proposal handling', () => {
     });
 
     test('typing a new message while a proposal is pending sends a well-formed follow-up', async ({ browser }) => {
-        const ctx  = await browser.newContext();
+        const ctx  = await browser.newContext({ storageState: AUTH_FILE });
         const page = await ctx.newPage();
 
-        // Log in.
-        await page.goto(LOGIN_URL);
-        await page.fill('#user_login', 'admin');
-        await page.fill('#user_pass', 'password');
-        await page.click('#wp-submit');
-        await page.waitForURL('**/wp-admin/**');
         await page.goto(PLUGIN_URL);
         await setupPage(page);
 
@@ -237,14 +233,9 @@ test.describe('Chat — pending proposal handling', () => {
     });
 
     test('clicking Send while an approval AJAX is in flight is a no-op (race guard)', async ({ browser }) => {
-        const ctx  = await browser.newContext();
+        const ctx  = await browser.newContext({ storageState: AUTH_FILE });
         const page = await ctx.newPage();
 
-        await page.goto(LOGIN_URL);
-        await page.fill('#user_login', 'admin');
-        await page.fill('#user_pass', 'password');
-        await page.click('#wp-submit');
-        await page.waitForURL('**/wp-admin/**');
         await page.goto(PLUGIN_URL);
         await setupPage(page);
 
