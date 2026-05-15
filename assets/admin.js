@@ -744,11 +744,13 @@
 
             if (msg.role !== 'assistant' || !Array.isArray(msg.content)) { continue; }
 
-            var toolUseIds = [];
+            var toolUses = [];
             msg.content.forEach(function (block) {
-                if (block.type === 'tool_use' && block.id) { toolUseIds.push(block.id); }
+                if (block.type === 'tool_use' && block.id) {
+                    toolUses.push({ id: block.id, name: block.name || '' });
+                }
             });
-            if (!toolUseIds.length) { continue; }
+            if (!toolUses.length) { continue; }
 
             // Trailing assistant with tool_use → no chance for a tool_result to follow.
             if (i === msgs.length - 1) {
@@ -767,13 +769,14 @@
                 });
             }
 
-            var missing = toolUseIds.filter(function (id) { return resolved.indexOf(id) === -1; });
+            var missing = toolUses.filter(function (toolUse) { return resolved.indexOf(toolUse.id) === -1; });
             if (!missing.length) { continue; }
 
-            var synthetic = missing.map(function (id) {
+            var synthetic = missing.map(function (toolUse) {
                 return {
                     type:        'tool_result',
-                    tool_use_id: id,
+                    tool_use_id: toolUse.id,
+                    name:        toolUse.name,
                     content:     'The user moved on without approving this action.',
                 };
             });
@@ -1675,6 +1678,7 @@
                     {
                         type:        'tool_result',
                         tool_use_id: p.tool_use_id,
+                        name:        p.tool_name,
                         content:     'The user did not approve the proposed ' + PROPOSALS[p.kind].label + ' and sent a new instruction instead.',
                     },
                     { type: 'text', text: apiText },
@@ -2666,6 +2670,7 @@
                             content: (p.pre_results || []).concat([{
                                 type:        'tool_result',
                                 tool_use_id: p.tool_use_id,
+                                name:        p.tool_name,
                                 content:     aiMessage,
                             }]),
                         });
@@ -2713,6 +2718,7 @@
                 content: (p.pre_results || []).concat([{
                     type:        'tool_result',
                     tool_use_id: p.tool_use_id,
+                    name:        p.tool_name,
                     content:     cfg.cancelAi,
                 }]),
             });

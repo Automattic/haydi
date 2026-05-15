@@ -86,6 +86,12 @@ if ( ! class_exists( 'WP_REST_Response' ) ) {
     }
 }
 
+if ( ! function_exists( 'wp_json_encode' ) ) {
+    function wp_json_encode( $data, $options = 0, $depth = 512 ) { // phpcs:ignore
+        return json_encode( $data, $options, $depth );
+    }
+}
+
 // Sentinel exception used by tests to halt handler execution at the point
 // where production would call wp_die() inside wp_send_json_error/success.
 // Tests stub those WP functions to throw this so handlers don't keep running

@@ -21,11 +21,13 @@ function sanitizeMessages(msgs) {
 
         if (msg.role !== 'assistant' || !Array.isArray(msg.content)) { continue; }
 
-        var toolUseIds = [];
+        var toolUses = [];
         msg.content.forEach(function (block) {
-            if (block.type === 'tool_use' && block.id) { toolUseIds.push(block.id); }
+            if (block.type === 'tool_use' && block.id) {
+                toolUses.push({ id: block.id, name: block.name || '' });
+            }
         });
-        if (!toolUseIds.length) { continue; }
+        if (!toolUses.length) { continue; }
 
         if (i === msgs.length - 1) {
             fixed.pop();
@@ -43,13 +45,14 @@ function sanitizeMessages(msgs) {
             });
         }
 
-        var missing = toolUseIds.filter(function (id) { return resolved.indexOf(id) === -1; });
+        var missing = toolUses.filter(function (toolUse) { return resolved.indexOf(toolUse.id) === -1; });
         if (!missing.length) { continue; }
 
-        var synthetic = missing.map(function (id) {
+        var synthetic = missing.map(function (toolUse) {
             return {
                 type:        'tool_result',
-                tool_use_id: id,
+                tool_use_id: toolUse.id,
+                name:        toolUse.name,
                 content:     'The user moved on without approving this action.',
             };
         });
@@ -122,6 +125,7 @@ test('injects synthetic tool_result blocks for mid-history orphaned tool_use', (
     expect(result[1].content[0]).toMatchObject({
         type:        'tool_result',
         tool_use_id: 'tool_1',
+        name:        'run_query',
     });
     expect(result[1].content[1]).toMatchObject({
         type: 'text',
@@ -178,6 +182,7 @@ test('issue #12: broken state — orphaned proposal followed by plain-text user 
     expect(result[2].content[0]).toMatchObject({
         type:        'tool_result',
         tool_use_id: 'toolu_01H9thnKCPLdXv5T36pxP5Yo',
+        name:        'run_query',
     });
     expect(result[2].content[1]).toMatchObject({
         type: 'text',
@@ -216,6 +221,7 @@ test('inserts a fresh user message when the next message is assistant', () => {
     expect(result[1].content[0]).toMatchObject({
         type:        'tool_result',
         tool_use_id: 'tool_1',
+        name:        'run_query',
     });
     expect(result[2].role).toBe('assistant');
 });

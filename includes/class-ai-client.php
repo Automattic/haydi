@@ -22,6 +22,10 @@ class Haydi_AI_Client {
 	const DEFAULT_MAX_TOKENS      = 16384;
 	const DEFAULT_REQUEST_TIMEOUT = 300;
 
+	private const CONVERSION_MODE_DEFAULT         = 'default';
+	private const CONVERSION_MODE_OPENAI_SPLIT    = 'openai_split';
+	private const CONVERSION_MODE_TOOL_TRANSCRIPT = 'tool_transcript';
+
 	/** @var int|null Max output tokens; loaded lazily so handlers that never call the AI don't hit wp_options. */
 	private ?int $max_tokens = null;
 
@@ -107,7 +111,12 @@ class Haydi_AI_Client {
 			null === $model_preference &&
 			false !== strpos( $result->get_error_message(), 'must be the only part in a message' )
 		) {
-			$wp_messages = $this->to_wp_messages( $messages, $model_preference, true );
+			$wp_messages = $this->to_wp_messages( $messages, $model_preference, self::CONVERSION_MODE_OPENAI_SPLIT );
+			$result      = $this->execute_prompt( $wp_messages, $system, $include_tools, $model_preference );
+		}
+
+		if ( is_wp_error( $result ) && $this->should_retry_with_google_tool_transcript( $model_preference, $result ) ) {
+			$wp_messages = $this->to_wp_messages( $messages, $model_preference, self::CONVERSION_MODE_TOOL_TRANSCRIPT );
 			$result      = $this->execute_prompt( $wp_messages, $system, $include_tools, $model_preference );
 		}
 
@@ -361,6 +370,26 @@ class Haydi_AI_Client {
 		return $value;
 	}
 
+	/**
+	 * Decide whether an unknown default provider failure looks like Gemini's
+	 * missing thoughtSignature requirement.
+	 */
+	private function should_retry_with_google_tool_transcript( ?array $model_preference, WP_Error $error ): bool {
+		if ( null !== $model_preference ) {
+			return false;
+		}
+
+		/*
+		 * The Google provider bundled with WP 7.0 does not preserve Gemini's
+		 * thoughtSignature on functionCall parts, but newer Gemini models require it
+		 * when a function call is replayed with a function response. If the default
+		 * provider is unknown and the connector reports that exact failure, retry with
+		 * a plain-text tool transcript. If the provider error wording changes, this
+		 * substring is the compatibility point to update.
+		 */
+		return false !== stripos( $error->get_error_message(), 'thought_signature' );
+	}
+
 	// -------------------------------------------------------------------------
 	// Message conversion: internal format ↔ WP AI Client DTOs
 	// -------------------------------------------------------------------------
@@ -368,31 +397,49 @@ class Haydi_AI_Client {
 	/**
 	 * Convert an internal messages array to WP AI Client Message objects.
 	 *
-	 * @param array      $messages         Internal messages array.
-	 * @param array|null $model_preference [provider_id, model_id] or null.
-	 * @param bool       $openai_splitting Force OpenAI-style splitting even when model_preference is null.
-	 *                                     Used by the retry path in send_messages().
+	 * @param array       $messages         Internal messages array.
+	 * @param array|null  $model_preference [provider_id, model_id] or null.
+	 * @param string|null $conversion_mode Explicit conversion mode for retry paths.
 	 */
-	private function to_wp_messages( array $messages, ?array $model_preference = null, bool $openai_splitting = false ): array {
-		$wp_messages         = array();
-		$split_fn_boundaries = $openai_splitting || ( ( $model_preference[0] ?? '' ) === 'openai' );
+	private function to_wp_messages(
+		array $messages,
+		?array $model_preference = null,
+		?string $conversion_mode = null
+	): array {
+		$wp_messages     = array();
+		$conversion_mode = $this->message_conversion_mode( $model_preference, $conversion_mode );
 
 		foreach ( $messages as $msg ) {
 			$role    = $msg['role'] ?? '';
 			$content = $msg['content'] ?? '';
 
 			if ( 'user' === $role ) {
-				foreach ( $this->user_messages( $content, $split_fn_boundaries ) as $user_message ) {
+				foreach ( $this->user_messages( $content, $conversion_mode ) as $user_message ) {
 					$wp_messages[] = $user_message;
 				}
 			} elseif ( 'assistant' === $role ) {
-				foreach ( $this->model_messages( $content, $split_fn_boundaries ) as $model_message ) {
+				foreach ( $this->model_messages( $content, $conversion_mode ) as $model_message ) {
 					$wp_messages[] = $model_message;
 				}
 			}
 		}
 
 		return $wp_messages;
+	}
+
+	/**
+	 * Resolve the provider-specific internal-to-WP message conversion mode.
+	 */
+	private function message_conversion_mode( ?array $model_preference, ?string $explicit_mode = null ): string {
+		if ( null !== $explicit_mode ) {
+			return $explicit_mode;
+		}
+
+		return match ( strtolower( (string) ( $model_preference[0] ?? '' ) ) ) {
+			'google' => self::CONVERSION_MODE_TOOL_TRANSCRIPT,
+			'openai' => self::CONVERSION_MODE_OPENAI_SPLIT,
+			default  => self::CONVERSION_MODE_DEFAULT,
+		};
 	}
 
 	/**
@@ -405,8 +452,16 @@ class Haydi_AI_Client {
 	 *
 	 * @return UserMessage[]
 	 */
-	private function user_messages( string|array $content, bool $split_fn_responses = false ): array {
-		if ( ! $split_fn_responses ) {
+	private function user_messages(
+		string|array $content,
+		string $conversion_mode = self::CONVERSION_MODE_DEFAULT
+	): array {
+		if ( self::CONVERSION_MODE_TOOL_TRANSCRIPT === $conversion_mode ) {
+			$parts = $this->user_parts( $content, $conversion_mode );
+			return ! empty( $parts ) ? array( new UserMessage( $parts ) ) : array();
+		}
+
+		if ( self::CONVERSION_MODE_OPENAI_SPLIT !== $conversion_mode ) {
 			$parts = $this->user_parts( $content );
 			return ! empty( $parts ) ? array( new UserMessage( $parts ) ) : array();
 		}
@@ -436,17 +491,10 @@ class Haydi_AI_Client {
 				$text_parts = array();
 			}
 
-			$messages[] = new UserMessage(
-				array(
-					new MessagePart(
-						new FunctionResponse(
-							id:       $block['tool_use_id'] ?? null,
-							name:     null,
-							response: $block['content'] ?? '',
-						)
-					),
-				)
-			);
+			$tool_parts = $this->user_parts( array( $block ) );
+			if ( ! empty( $tool_parts ) ) {
+				$messages[] = new UserMessage( $tool_parts );
+			}
 		}
 
 		if ( ! empty( $text_parts ) ) {
@@ -460,7 +508,10 @@ class Haydi_AI_Client {
 	 * Build MessagePart[] for a user message.
 	 * Content is a plain string or an array of text/tool_result blocks.
 	 */
-	private function user_parts( string|array $content ): array {
+	private function user_parts(
+		string|array $content,
+		string $conversion_mode = self::CONVERSION_MODE_DEFAULT
+	): array {
 		if ( is_string( $content ) ) {
 			return '' !== $content ? array( new MessagePart( $content ) ) : array();
 		}
@@ -471,13 +522,11 @@ class Haydi_AI_Client {
 			if ( 'text' === $type && '' !== ( $block['text'] ?? '' ) ) {
 				$parts[] = new MessagePart( $block['text'] );
 			} elseif ( 'tool_result' === $type ) {
-				$parts[] = new MessagePart(
-					new FunctionResponse(
-						id:       $block['tool_use_id'] ?? null,
-						name:     null,
-						response: $block['content'] ?? '',
-					)
-				);
+				if ( self::CONVERSION_MODE_TOOL_TRANSCRIPT === $conversion_mode ) {
+					$parts[] = new MessagePart( $this->format_tool_result_transcript( $block ) );
+					continue;
+				}
+				$parts[] = new MessagePart( $this->function_response_from_tool_result( $block ) );
 			}
 		}
 
@@ -485,10 +534,24 @@ class Haydi_AI_Client {
 	}
 
 	/**
+	 * Build a provider-neutral function response DTO from an internal tool_result block.
+	 */
+	private function function_response_from_tool_result( array $block ): FunctionResponse {
+		return new FunctionResponse(
+			id:       $block['tool_use_id'] ?? null,
+			name: ! empty( $block['name'] ) ? (string) $block['name'] : null,
+			response: $block['content'] ?? '',
+		);
+	}
+
+	/**
 	 * Build MessagePart[] for an assistant (model) message.
 	 * Content is a plain string or an array of text/tool_use blocks.
 	 */
-	private function model_parts( string|array $content ): array {
+	private function model_parts(
+		string|array $content,
+		string $conversion_mode = self::CONVERSION_MODE_DEFAULT
+	): array {
 		if ( is_string( $content ) ) {
 			return '' !== $content ? array( new MessagePart( $content ) ) : array();
 		}
@@ -499,6 +562,10 @@ class Haydi_AI_Client {
 			if ( 'text' === $type && '' !== ( $block['text'] ?? '' ) ) {
 				$parts[] = new MessagePart( $block['text'] );
 			} elseif ( 'tool_use' === $type ) {
+				if ( self::CONVERSION_MODE_TOOL_TRANSCRIPT === $conversion_mode ) {
+					$parts[] = new MessagePart( $this->format_tool_use_transcript( $block ) );
+					continue;
+				}
 				// json_decode( $raw, true ) turns every {} into [], so an
 				// empty-input tool call gets stored as []. Cast back to a
 				// stdClass so it serialises as {} (a JSON object/dictionary)
@@ -509,7 +576,9 @@ class Haydi_AI_Client {
 						id:   $block['id'] ?? null,
 						name: $block['name'] ?? null,
 						args: ! empty( $raw_input ) ? $raw_input : new \stdClass(),
-					)
+					),
+					null,
+					! empty( $block['thought_signature'] ) ? (string) $block['thought_signature'] : null
 				);
 			}
 		}
@@ -527,13 +596,16 @@ class Haydi_AI_Client {
 	 *
 	 * @return ModelMessage[]
 	 */
-	private function model_messages( string|array $content, bool $split_fn_calls = false ): array {
-		$parts = $this->model_parts( $content );
+	private function model_messages(
+		string|array $content,
+		string $conversion_mode = self::CONVERSION_MODE_DEFAULT
+	): array {
+		$parts = $this->model_parts( $content, $conversion_mode );
 		if ( empty( $parts ) ) {
 			return array();
 		}
 
-		if ( ! $split_fn_calls ) {
+		if ( self::CONVERSION_MODE_OPENAI_SPLIT !== $conversion_mode ) {
 			return array( new ModelMessage( $parts ) );
 		}
 
@@ -560,6 +632,46 @@ class Haydi_AI_Client {
 			$messages[] = new ModelMessage( array( $call_part ) );
 		}
 		return $messages;
+	}
+
+	/**
+	 * Format a prior model tool request as regular transcript text.
+	 */
+	private function format_tool_use_transcript( array $block ): string {
+		$name       = (string) ( $block['name'] ?? 'unknown_tool' );
+		$id         = (string) ( $block['id'] ?? '' );
+		$input      = $block['input'] ?? array();
+		$input_json = wp_json_encode( $input );
+		if ( ! is_string( $input_json ) ) {
+			$input_json = '{}';
+		}
+
+		return sprintf(
+			'Tool requested%s: %s' . "\n" . 'Input: %s',
+			'' !== $id ? ' (' . $id . ')' : '',
+			$name,
+			$input_json
+		);
+	}
+
+	/**
+	 * Format a tool result as regular transcript text.
+	 */
+	private function format_tool_result_transcript( array $block ): string {
+		$name    = (string) ( $block['name'] ?? 'unknown_tool' );
+		$id      = (string) ( $block['tool_use_id'] ?? '' );
+		$content = $block['content'] ?? '';
+		if ( ! is_string( $content ) ) {
+			$encoded = wp_json_encode( $content );
+			$content = is_string( $encoded ) ? $encoded : '';
+		}
+
+		return sprintf(
+			'Tool result%s: %s' . "\n" . 'Output: %s',
+			'' !== $id ? ' (' . $id . ')' : '',
+			$name,
+			$content
+		);
 	}
 
 	/**
@@ -590,13 +702,20 @@ class Haydi_AI_Client {
 					);
 				}
 				if ( null !== $call ) {
-					$has_tool_calls   = true;
-					$content_blocks[] = array(
+					$has_tool_calls = true;
+					$tool_use_block = array(
 						'type'  => 'tool_use',
 						'id'    => $call->getId() ?? uniqid( 'tool_' ),
 						'name'  => $call->getName() ?? '',
 						'input' => $call->getArgs() ?? array(),
 					);
+
+					$thought_signature = $part->getThoughtSignature();
+					if ( null !== $thought_signature && '' !== $thought_signature ) {
+						$tool_use_block['thought_signature'] = $thought_signature;
+					}
+
+					$content_blocks[] = $tool_use_block;
 				}
 			}
 		}

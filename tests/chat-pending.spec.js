@@ -168,6 +168,7 @@ test.describe('Chat — pending proposal handling', () => {
                     messages: echoed,
                     pending_query: {
                         tool_use_id: TOOL_USE_ID,
+                        tool_name:   'run_query',
                         sql:         'SELECT 1',
                         reason:      'inspect categories',
                         pre_results: [],
@@ -263,6 +264,7 @@ test.describe('Chat — pending proposal handling', () => {
                         messages: echoed,
                         pending_query: {
                             tool_use_id: TOOL_USE_ID,
+                            tool_name:   'run_query',
                             sql:         'SELECT 1',
                             reason:      'r',
                             pre_results: [],

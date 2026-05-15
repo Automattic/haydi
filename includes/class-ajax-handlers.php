@@ -389,12 +389,16 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 						$tool_results[] = array(
 							'type'        => 'tool_result',
 							'tool_use_id' => $tool_id,
+							'name'        => $tool_name,
 							'content'     => 'Deferred: only one action can be approved at a time. Propose this again after the current action is approved.',
 						);
 						continue;
 					}
 
-					$payload = array( 'tool_use_id' => $tool_id );
+					$payload = array(
+						'tool_use_id' => $tool_id,
+						'tool_name'   => $tool_name,
+					);
 					foreach ( $proposal_spec['fields'] as $field ) {
 						$payload[ $field ] = $input[ $field ] ?? '';
 					}
@@ -435,6 +439,7 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 				$tool_results[] = array(
 					'type'        => 'tool_result',
 					'tool_use_id' => $tool_id,
+					'name'        => $tool_name,
 					'content'     => is_string( $result ) ? $result : wp_json_encode( $result ),
 				);
 			}
