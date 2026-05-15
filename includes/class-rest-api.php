@@ -288,6 +288,7 @@ class Haydi_Rest_Api {
 				'site_url'      => get_site_url(),
 				'site_name'     => get_bloginfo( 'name' ),
 				'haydi_version' => '1.0.0',
+				'allowed_roots' => array_values( $this->guard->get_allowed_roots() ),
 			)
 		);
 	}
@@ -763,6 +764,14 @@ class Haydi_Rest_Api {
 					),
 				),
 			),
+			array(
+				'name'        => 'haydi_get_allowed_roots',
+				'description' => 'Return the list of absolute directory paths that Haydi is allowed to read from and write to. Call this before writing files to choose a valid target path.',
+				'inputSchema' => array(
+					'type'       => 'object',
+					'properties' => new \stdClass(),
+				),
+			),
 			// File — write.
 			array(
 				'name'        => 'haydi_write_file',
@@ -1041,6 +1050,8 @@ class Haydi_Rest_Api {
 	private function mcp_execute_tool( string $name, array $args ): string|WP_Error {
 		switch ( $name ) {
 			// Read tools — existing *_for_ai() helpers return strings already.
+			case 'haydi_get_allowed_roots':
+				return wp_json_encode( array_values( $this->guard->get_allowed_roots() ), JSON_PRETTY_PRINT );
 			case 'haydi_list_files':
 				return $this->file_tool->list_files_for_ai( (string) ( $args['path'] ?? '' ) );
 			case 'haydi_read_file':

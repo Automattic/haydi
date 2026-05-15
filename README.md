@@ -51,6 +51,8 @@ Claude Code can then use all Haydi tools (`haydi_list_files`, `haydi_write_file`
 
 The same token also works against the REST API directly: `GET /wp-json/haydi/v1/files`, `POST /wp-json/haydi/v1/query`, etc. Write operations execute immediately when authenticated via token (the token is the approval gate).
 
+`GET /wp-json/haydi/v1/status` returns site info plus an `allowed_roots` array — the same paths exposed by the `haydi_get_allowed_roots` MCP tool — so clients can discover valid write targets without guessing.
+
 ---
 
 ## How it works
@@ -83,6 +85,7 @@ Everything that mutates the filesystem, database, or plugin state always pauses 
 | Tool | Auto? | What it does |
 |---|---|---|
 | `fetch_url(url)` | Yes | Fetches a public URL, strips HTML, truncates at 100 KB. Private IPs blocked. |
+| `get_allowed_roots()` | Yes | Returns the list of absolute directory paths Haydi is allowed to read/write. Call this before writing files to pick a valid target path. |
 | `list_files(path)` | Yes | Lists files/dirs inside an allowed root. |
 | `read_file(path)` | Yes | Reads a file (max 512 KB). |
 | `search_files(query, path, mode, extensions, max_results)` | Yes | Searches allowed file contents using PHP (no shell grep). Empty optional fields use safe defaults. |
