@@ -118,13 +118,16 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 	private Haydi_Plugin_Tool $plugin_tool;
 	/** @var Haydi_Fetch_Url_Tool URL fetch tool, retained for read-tool dispatch. */
 	private Haydi_Fetch_Url_Tool $url_tool;
+	/** @var Haydi_Api_Token_Manager API token manager. */
+	private Haydi_Api_Token_Manager $token_manager;
 
 	public function __construct() {
 		parent::__construct( new Haydi_Audit_Logger() );
 
-		$this->guard  = new Haydi_Filesystem_Guard();
-		$this->client = new Haydi_AI_Client();
-		$health       = new Haydi_Health_Check();
+		$this->guard         = new Haydi_Filesystem_Guard();
+		$this->client        = new Haydi_AI_Client();
+		$this->token_manager = new Haydi_Api_Token_Manager();
+		$health              = new Haydi_Health_Check();
 
 		// Construct each tool with its dependencies and let it register its
 		// own AJAX hooks. Centralising registration here would force this class
@@ -172,6 +175,9 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 			'haydi_get_audit_log'          => 'handle_get_audit_log',
 			'haydi_dismiss_jetpack_notice' => 'handle_dismiss_jetpack_notice',
 			'haydi_complete_onboarding'    => 'handle_complete_onboarding',
+			'haydi_generate_token'         => 'handle_generate_token',
+			'haydi_revoke_token'           => 'handle_revoke_token',
+			'haydi_list_tokens'            => 'handle_list_tokens',
 		) as $action => $method ) {
 			add_action( 'wp_ajax_' . $action, array( $this, $method ) );
 		}
@@ -692,6 +698,50 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 		$this->verify();
 		update_user_meta( get_current_user_id(), 'haydi_jetpack_notice_dismissed', '1' );
 		wp_send_json_success();
+	}
+
+	// -------------------------------------------------------------------------
+	// API token management
+	// -------------------------------------------------------------------------
+
+	/**
+	 * Generate a new API token and return it along with the updated token list.
+	 * The plaintext token is returned only once; subsequent calls return prefixes.
+	 */
+	public function handle_generate_token(): void {
+		$this->verify();
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- nonce verified by $this->verify().
+		$label = isset( $_POST['label'] ) ? sanitize_text_field( wp_unslash( $_POST['label'] ) ) : '';
+		$token = $this->token_manager->generate_token( $label );
+		wp_send_json_success(
+			array(
+				'token'  => $token,
+				'tokens' => $this->token_manager->get_tokens(),
+			)
+		);
+	}
+
+	/**
+	 * Revoke an API token by its SHA-256 hash.
+	 */
+	public function handle_revoke_token(): void {
+		$this->verify();
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- nonce verified by $this->verify().
+		$hash = isset( $_POST['hash'] ) ? sanitize_text_field( wp_unslash( $_POST['hash'] ) ) : '';
+		if ( '' === $hash ) {
+			wp_send_json_error( array( 'message' => 'hash is required.' ) );
+			return;
+		}
+		$this->token_manager->revoke_token( $hash );
+		wp_send_json_success( array( 'tokens' => $this->token_manager->get_tokens() ) );
+	}
+
+	/**
+	 * Return the current token list (prefix + label + created, no plaintext).
+	 */
+	public function handle_list_tokens(): void {
+		$this->verify();
+		wp_send_json_success( array( 'tokens' => $this->token_manager->get_tokens() ) );
 	}
 
 	/**

@@ -21,6 +21,7 @@ const testFile   = `${testDir}/test.php`;
 let page;
 let ajaxUrl;
 let nonce;
+let restRoot; // REST API root URL — varies by permalink structure (extracted from wpApiSettings).
 
 test.describe('Haydi_Ajax_Handlers', () => {
     test.describe.configure({ mode: 'serial' });
@@ -42,8 +43,16 @@ test.describe('Haydi_Ajax_Handlers', () => {
 
         // Load the plugin page to extract the nonce and ajax URL.
         await page.goto(PLUGIN_URL);
-        ajaxUrl = await page.evaluate(() => window.haydi.ajaxUrl); // eslint-disable-line no-undef
-        nonce   = await page.evaluate(() => window.haydi.nonce);   // eslint-disable-line no-undef
+        ajaxUrl  = await page.evaluate(() => window.haydi.ajaxUrl);  // eslint-disable-line no-undef
+        nonce    = await page.evaluate(() => window.haydi.nonce);    // eslint-disable-line no-undef
+        // Derive the REST root from the mcp-url data attribute (baked in by PHP via rest_url()).
+        // Works regardless of permalink structure (plain or pretty).
+        restRoot = await page.evaluate(() => {
+            /* eslint-disable no-undef */
+            const mcpUrl = document.querySelector('#wpc-mcp-config-snippet')?.dataset?.mcpUrl ?? '';
+            return mcpUrl ? mcpUrl.replace(/haydi\/v1\/mcp.*$/, '') : `${window.location.origin}/wp-json/`;
+            /* eslint-enable no-undef */
+        });
 
         // Seed the test directory with a file.
         await post({
@@ -628,5 +637,151 @@ test.describe('Haydi_Ajax_Handlers', () => {
         for (const id of remaining) {
             await post({ action: 'haydi_delete_chat', id });
         }
+    });
+
+    // -------------------------------------------------------------------------
+    // REST API + MCP
+    // -------------------------------------------------------------------------
+
+    test.describe('REST API + MCP', () => {
+        test.describe.configure({ mode: 'serial' });
+
+        let apiToken;
+
+        /** Helper: perform a REST API request using the site's actual REST root. */
+        async function rest(method, path, opts = {}) {
+            const { token, body, params } = opts;
+            // restRoot already ends with "/" (e.g. ".../index.php?rest_route=/" or ".../wp-json/").
+            // Appending "haydi/v1/status" gives the correct URL in both permalink modes.
+            let url = restRoot + 'haydi/v1' + path;
+            if (params) {
+                const qs = new URLSearchParams(params).toString();
+                url += (url.includes('?') ? '&' : '?') + qs;
+            }
+            const headers = { 'Content-Type': 'application/json' };
+            if (token) { headers['Authorization'] = `Bearer ${token}`; }
+            return page.request.fetch(url, {
+                method,
+                headers,
+                data: body !== undefined ? JSON.stringify(body) : undefined,
+            }).then(r => r.json());
+        }
+
+        /** Helper: POST to /mcp with a JSON-RPC body. */
+        async function mcp(body, token) {
+            return rest('POST', '/mcp', { body, token });
+        }
+
+        test('haydi_generate_token — generates a 64-char token', async () => {
+            const res = await post({ action: 'haydi_generate_token', label: 'integration-test' });
+            expect(res.success).toBe(true);
+            expect(typeof res.data.token).toBe('string');
+            expect(res.data.token).toHaveLength(64);
+            apiToken = res.data.token;
+        });
+
+        test('GET /status — returns site_url and haydi_version', async () => {
+            const res = await rest('GET', '/status', { token: apiToken });
+            expect(res).toHaveProperty('site_url');
+            expect(res.haydi_version).toBe('1.0.0');
+        });
+
+        test('GET /files — returns files array for plugins dir', async () => {
+            const res = await rest('GET', '/files', { token: apiToken, params: { path: pluginsDir } });
+            expect(Array.isArray(res.files)).toBe(true);
+        });
+
+        test('GET /file — returns content containing <?php', async () => {
+            const res = await rest('GET', '/file', { token: apiToken, params: { path: testFile } });
+            expect(res.content).toContain('<?php');
+        });
+
+        test('REST write, read, delete cycle', async () => {
+            const restFile = `${testDir}/rest-api-test.php`;
+
+            // Write.
+            const writeRes = await rest('POST', '/file', {
+                token: apiToken,
+                body:  { path: restFile, content: '<?php // rest api test\n' },
+            });
+            expect(writeRes.message).toMatch(/written/i);
+
+            // Read back.
+            const readRes = await rest('GET', '/file', { token: apiToken, params: { path: restFile } });
+            expect(readRes.content).toContain('<?php // rest api test');
+
+            // Delete.
+            const deleteRes = await rest('DELETE', '/file', { token: apiToken, params: { path: restFile } });
+            expect(deleteRes.message).toMatch(/deleted/i);
+
+            // Subsequent GET should return an error.
+            const afterDelete = await rest('GET', '/file', { token: apiToken, params: { path: restFile } });
+            expect(afterDelete).toHaveProperty('message');
+        });
+
+        test('MCP initialize — returns correct protocol version and serverInfo', async () => {
+            const res = await mcp({ jsonrpc: '2.0', method: 'initialize', id: 1 }, apiToken);
+            expect(res.result.protocolVersion).toBe('2024-11-05');
+            expect(res.result.serverInfo.name).toBe('haydi');
+        });
+
+        test('MCP ping — response has result', async () => {
+            const res = await mcp({ jsonrpc: '2.0', method: 'ping', id: 2 }, apiToken);
+            expect(res).toHaveProperty('result');
+        });
+
+        test('MCP tools/list — contains haydi_list_files and haydi_list_plugins', async () => {
+            const res   = await mcp({ jsonrpc: '2.0', method: 'tools/list', id: 3 }, apiToken);
+            const names = res.result.tools.map(t => t.name);
+            expect(names).toContain('haydi_list_files');
+            expect(names).toContain('haydi_list_plugins');
+        });
+
+        test('MCP tools/call haydi_list_plugins — returns text content with plugins array', async () => {
+            const res = await mcp({
+                jsonrpc: '2.0',
+                method:  'tools/call',
+                id:      4,
+                params:  { name: 'haydi_list_plugins', arguments: {} },
+            }, apiToken);
+            expect(res.result.content[0].type).toBe('text');
+            const parsed = JSON.parse(res.result.content[0].text);
+            expect(Array.isArray(parsed)).toBe(true);
+        });
+
+        test('MCP tools/call unknown tool — isError is true', async () => {
+            const res = await mcp({
+                jsonrpc: '2.0',
+                method:  'tools/call',
+                id:      5,
+                params:  { name: 'nonexistent_tool', arguments: {} },
+            }, apiToken);
+            expect(res.result.isError).toBe(true);
+        });
+
+        test('Revoke token — revoked token is rejected by /status', async () => {
+            // Find the token hash via haydi_list_tokens.
+            const listRes = await post({ action: 'haydi_list_tokens' });
+            expect(listRes.success).toBe(true);
+            const tokenEntry = listRes.data.tokens.find(t => apiToken.startsWith(t.prefix));
+            expect(tokenEntry).toBeDefined();
+
+            // Revoke the token.
+            const revokeRes = await post({ action: 'haydi_revoke_token', hash: tokenEntry.hash });
+            expect(revokeRes.success).toBe(true);
+
+            // Use a fresh browser page without WP cookies so the request relies
+            // solely on the (now-revoked) Bearer token.
+            const freshPage = await page.context().browser().newPage();
+            try {
+                const url     = restRoot + 'haydi/v1/status';
+                const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiToken}` };
+                const res     = await freshPage.request.fetch(url, { method: 'GET', headers });
+                // REST API returns a 401/403 JSON error when the token is invalid.
+                expect(res.status()).not.toBe(200);
+            } finally {
+                await freshPage.close();
+            }
+        });
     });
 });

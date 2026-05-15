@@ -22,20 +22,15 @@ class Haydi_PHP_Tool extends Haydi_Ajax_Tool_Base {
 	}
 
 	/**
-	 * Execute a human-approved PHP snippet in the WordPress context.
-	 * Output (via echo/print/var_dump etc.) is captured and returned.
+	 * Execute a PHP snippet in the WordPress context and capture output.
+	 *
+	 * @param string $code   PHP code to execute (no opening <?php tag).
+	 * @param string $reason Audit log reason.
+	 * @return array|WP_Error Success payload or WP_Error on failure.
 	 */
-	public function handle_run_php(): void {
-		$this->verify();
-
-		// phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- nonce verified via $this->verify(); code is human-approved
-		$code = isset( $_POST['code'] ) ? wp_unslash( $_POST['code'] ) : '';
-		// phpcs:ignore WordPress.Security.NonceVerification.Missing
-		$reason = isset( $_POST['reason'] ) ? sanitize_text_field( wp_unslash( $_POST['reason'] ) ) : '';
-
+	public function execute_php( string $code, string $reason ): array|WP_Error {
 		if ( '' === trim( $code ) ) {
-			wp_send_json_error( array( 'message' => 'code is required.' ) );
-			return;
+			return new WP_Error( 'missing_param', 'code is required.', array( 'status' => 400 ) );
 		}
 
 		$this->logger->log( 'php_executed', '', $reason );
@@ -70,13 +65,14 @@ class Haydi_PHP_Tool extends Haydi_Ajax_Tool_Base {
 		$output = ob_get_clean();
 
 		if ( null !== $exec_error ) {
-			wp_send_json_error(
+			return new WP_Error(
+				'php_error',
+				'PHP error — ' . $exec_error,
 				array(
-					'message' => 'PHP error — ' . $exec_error,
-					'output'  => $output,
+					'status' => 400,
+					'output' => $output,
 				)
 			);
-			return;
 		}
 
 		// Detect-only: a snippet that returns cleanly can still leave the site
@@ -85,21 +81,47 @@ class Haydi_PHP_Tool extends Haydi_Ajax_Tool_Base {
 		// failure loudly along with whatever output the snippet produced.
 		$err = $this->health->verify_or_warn( 'PHP execution' );
 		if ( $err ) {
+			return new WP_Error(
+				$err->get_error_code(),
+				$err->get_error_message(),
+				array(
+					'status' => 500,
+					'output' => '' !== $output ? $output : '(no output)',
+				)
+			);
+		}
+
+		return array(
+			'message' => 'PHP executed successfully.',
+			'output'  => '' !== $output ? $output : '(no output)',
+		);
+	}
+
+	/**
+	 * Execute a human-approved PHP snippet in the WordPress context.
+	 * Output (via echo/print/var_dump etc.) is captured and returned.
+	 */
+	public function handle_run_php(): void {
+		$this->verify();
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- nonce verified via $this->verify(); code is human-approved
+		$code = isset( $_POST['code'] ) ? wp_unslash( $_POST['code'] ) : '';
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing
+		$reason = isset( $_POST['reason'] ) ? sanitize_text_field( wp_unslash( $_POST['reason'] ) ) : '';
+
+		$result = $this->execute_php( $code, $reason );
+		if ( is_wp_error( $result ) ) {
+			$data   = $result->get_error_data();
+			$output = is_array( $data ) && isset( $data['output'] ) ? $data['output'] : '';
 			wp_send_json_error(
 				array(
-					'message' => $err->get_error_message(),
-					'output'  => '' !== $output ? $output : '(no output)',
+					'message' => $result->get_error_message(),
+					'output'  => $output,
 				)
 			);
 			return;
 		}
-
-		wp_send_json_success(
-			array(
-				'message' => 'PHP executed successfully.',
-				'output'  => '' !== $output ? $output : '(no output)',
-			)
-		);
+		wp_send_json_success( $result );
 	}
 
 	/**

@@ -34,20 +34,55 @@ if ( ! class_exists( 'WP_Error' ) ) {
     class WP_Error { // phpcs:ignore
         private string $code;
         private string $message;
+        private mixed $data;
 
-        public function __construct( string $code = '', string $message = '' ) {
+        public function __construct( string $code = '', string $message = '', mixed $data = null ) {
             $this->code    = $code;
             $this->message = $message;
+            $this->data    = $data;
         }
 
         public function get_error_code(): string    { return $this->code; }
         public function get_error_message(): string { return $this->message; }
+        public function get_error_data(): mixed     { return $this->data; }
+        public function has_errors(): bool          { return '' !== $this->code; }
     }
 }
 
 if ( ! function_exists( 'is_wp_error' ) ) {
     function is_wp_error( $thing ): bool { // phpcs:ignore
         return $thing instanceof WP_Error;
+    }
+}
+
+if ( ! class_exists( 'WP_REST_Request' ) ) {
+    class WP_REST_Request { // phpcs:ignore
+        private array $json_params = array();
+        private array $headers     = array();
+        private array $query       = array();
+
+        public function get_json_params(): mixed           { return $this->json_params; }
+        public function get_header( string $name ): ?string { return $this->headers[ strtolower( $name ) ] ?? null; }
+        public function get_param( string $name ): mixed  { return $this->query[ $name ] ?? null; }
+
+        public function set_json_params( array $p ): void      { $this->json_params = $p; }
+        public function set_header( string $n, string $v ): void { $this->headers[ strtolower( $n ) ] = $v; }
+        public function set_param( string $n, mixed $v ): void { $this->query[ $n ] = $v; }
+    }
+}
+
+if ( ! class_exists( 'WP_REST_Response' ) ) {
+    class WP_REST_Response { // phpcs:ignore
+        private mixed $data;
+        private int $status;
+
+        public function __construct( mixed $data = null, int $status = 200 ) {
+            $this->data   = $data;
+            $this->status = $status;
+        }
+
+        public function get_data(): mixed { return $this->data; }
+        public function get_status(): int { return $this->status; }
     }
 }
 
@@ -82,3 +117,5 @@ require_once $plugin_root . '/includes/tools/class-php-tool.php';
 require_once $plugin_root . '/includes/tools/class-fetch-url-tool.php';
 require_once $plugin_root . '/includes/class-chat-store.php';
 require_once $plugin_root . '/includes/class-ajax-handlers.php';
+require_once $plugin_root . '/includes/class-api-token-manager.php';
+require_once $plugin_root . '/includes/class-rest-api.php';

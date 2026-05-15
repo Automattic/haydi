@@ -459,6 +459,33 @@ $tracks_enabled     = (bool) get_option( 'haydi_enable_tracks', false );
 							<span class="wpc-muted"></span>
 						</label>
 					</details>
+					<details class="wpc-advanced-settings">
+						<summary><?php esc_html_e( 'Remote access', 'haydi' ); ?></summary>
+						<div class="wpc-remote-access">
+							<p class="wpc-muted wpc-remote-access__desc"><?php esc_html_e( 'Generate API tokens to connect local AI tools (Claude Code, Codex) to this site via MCP.', 'haydi' ); ?></p>
+							<div id="wpc-tokens-list"></div>
+							<div class="wpc-remote-access__form">
+								<input type="text" id="wpc-token-label" class="wpc-remote-access__input"
+									placeholder="<?php esc_attr_e( 'Label (optional)', 'haydi' ); ?>">
+								<button type="button" id="wpc-btn-generate-token" class="button button-secondary wpc-remote-access__btn">
+									<?php esc_html_e( 'Generate', 'haydi' ); ?>
+								</button>
+							</div>
+							<div id="wpc-new-token-display" class="wpc-hidden wpc-remote-access__token-display">
+								<p class="wpc-remote-access__once-notice"><?php esc_html_e( 'Copy now — not shown again.', 'haydi' ); ?></p>
+								<code id="wpc-new-token-value" class="wpc-remote-access__token-value"></code>
+								<button type="button" id="wpc-btn-copy-token" class="button button-secondary wpc-remote-access__copy-btn">
+									<?php esc_html_e( 'Copy to clipboard', 'haydi' ); ?>
+								</button>
+								<details class="wpc-remote-access__details">
+									<summary><?php esc_html_e( 'Connect with Claude Code', 'haydi' ); ?></summary>
+									<p class="wpc-remote-access__snippet-label"><?php esc_html_e( 'Add to ~/.claude/claude_code_config.json:', 'haydi' ); ?></p>
+									<pre id="wpc-mcp-config-snippet" class="wpc-remote-access__snippet"
+										data-mcp-url="<?php echo esc_attr( rest_url( 'haydi/v1/mcp' ) ); ?>"></pre>
+								</details>
+							</div>
+						</div>
+					</details>
 					<div class="wpc-session-actions">
 						<button type="button" id="wpc-btn-compact" class="wpc-session-action-btn">
 							<span class="dashicons dashicons-editor-contract"></span>
@@ -496,6 +523,7 @@ $tracks_enabled     = (bool) get_option( 'haydi_enable_tracks', false );
 					<p class="wpc-muted wpc-sidebar-empty"><?php esc_html_e( 'No activity yet.', 'haydi' ); ?></p>
 				</div>
 			</div>
+
 
 		</div><!-- /.wpc-sidebar -->
 

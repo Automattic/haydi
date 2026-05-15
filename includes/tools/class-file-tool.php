@@ -127,6 +127,281 @@ class Haydi_File_Tool extends Haydi_Ajax_Tool_Base {
 	}
 
 	// -------------------------------------------------------------------------
+	// Service-layer execute methods (shared by AJAX, REST API, and MCP)
+	// -------------------------------------------------------------------------
+
+	/**
+	 * Write a file. PHP syntax is validated before writing; post-write health
+	 * check is performed for .php files.
+	 *
+	 * @param string $path    Absolute path to write to.
+	 * @param string $content File contents.
+	 * @param string $reason  Audit log reason.
+	 * @return array|WP_Error Success payload or WP_Error on failure.
+	 */
+	public function execute_write( string $path, string $content, string $reason ): array|WP_Error {
+		if ( '' === $path ) {
+			return new WP_Error( 'missing_param', 'path is required.', array( 'status' => 400 ) );
+		}
+
+		if ( str_ends_with( $path, '.php' ) ) {
+			try {
+				token_get_all( $content, TOKEN_PARSE );
+			} catch ( \ParseError | \CompileError $e ) {
+				return new WP_Error(
+					'syntax_error',
+					'PHP syntax error — file not written: ' . $e->getMessage() . ' on line ' . $e->getLine(),
+					array( 'status' => 400 )
+				);
+			}
+		}
+
+		$result = $this->guard->write_file( $path, $content );
+		if ( is_wp_error( $result ) ) {
+			return new WP_Error( $result->get_error_code(), $result->get_error_message(), array( 'status' => 400 ) );
+		}
+
+		if ( str_ends_with( $result, '.php' ) ) {
+			$err = $this->health->verify_or_revert(
+				fn() => $this->guard->restore_latest_backup( $result ),
+				'File write'
+			);
+			if ( $err ) {
+				return new WP_Error( $err->get_error_code(), $err->get_error_message(), array( 'status' => 500 ) );
+			}
+		}
+
+		$this->logger->log( 'write_applied', $result, $reason );
+		return array(
+			'message' => 'File written successfully.',
+			'path'    => $result,
+		);
+	}
+
+	/**
+	 * Apply an exact-string edit to an existing file.
+	 *
+	 * @param string $file_path   Absolute path to the file.
+	 * @param string $old_string  Exact string to replace.
+	 * @param string $new_string  Replacement string.
+	 * @param bool   $replace_all Replace all occurrences.
+	 * @param string $reason      Audit log reason.
+	 * @return array|WP_Error Success payload or WP_Error on failure.
+	 */
+	public function execute_edit( string $file_path, string $old_string, string $new_string, bool $replace_all, string $reason ): array|WP_Error {
+		if ( '' === $file_path ) {
+			return new WP_Error( 'missing_param', 'filePath is required.', array( 'status' => 400 ) );
+		}
+
+		$prepared = $this->guard->prepare_edit_file( $file_path, $old_string, $new_string, $replace_all );
+		if ( is_wp_error( $prepared ) ) {
+			return new WP_Error( $prepared->get_error_code(), $prepared->get_error_message(), array( 'status' => 400 ) );
+		}
+
+		if ( str_ends_with( $prepared['path'], '.php' ) ) {
+			try {
+				token_get_all( $prepared['content'], TOKEN_PARSE );
+			} catch ( \ParseError | \CompileError $e ) {
+				return new WP_Error(
+					'syntax_error',
+					'PHP syntax error — file not written: ' . $e->getMessage() . ' on line ' . $e->getLine(),
+					array( 'status' => 400 )
+				);
+			}
+		}
+
+		$result = $this->guard->write_file( $prepared['path'], $prepared['content'] );
+		if ( is_wp_error( $result ) ) {
+			return new WP_Error( $result->get_error_code(), $result->get_error_message(), array( 'status' => 400 ) );
+		}
+
+		if ( str_ends_with( $result, '.php' ) ) {
+			$err = $this->health->verify_or_revert(
+				fn() => $this->guard->restore_latest_backup( $result ),
+				'File edit'
+			);
+			if ( $err ) {
+				return new WP_Error( $err->get_error_code(), $err->get_error_message(), array( 'status' => 500 ) );
+			}
+		}
+
+		$this->logger->log( 'edit_applied', $result, $reason );
+		return array(
+			'message' => 'File edited successfully.',
+			'path'    => $result,
+			'matches' => $prepared['matches'],
+		);
+	}
+
+	/**
+	 * Delete a file after approval. Auto-restores from backup on health failure.
+	 *
+	 * @param string $path   Absolute path to the file.
+	 * @param string $reason Audit log reason.
+	 * @return array|WP_Error Success payload or WP_Error on failure.
+	 */
+	public function execute_delete( string $path, string $reason ): array|WP_Error {
+		if ( '' === $path ) {
+			return new WP_Error( 'missing_param', 'path is required.', array( 'status' => 400 ) );
+		}
+
+		$result = $this->guard->delete_file( $path );
+		if ( is_wp_error( $result ) ) {
+			return new WP_Error( $result->get_error_code(), $result->get_error_message(), array( 'status' => 400 ) );
+		}
+
+		$err = $this->health->verify_or_revert(
+			fn() => $this->guard->restore_latest_backup( $result ),
+			'File deletion'
+		);
+		if ( $err ) {
+			return new WP_Error( $err->get_error_code(), $err->get_error_message(), array( 'status' => 500 ) );
+		}
+
+		$this->logger->log( 'file_deleted', $result, '' !== $reason ? $reason : 'Human-initiated deletion.' );
+		return array(
+			'message' => 'File deleted successfully.',
+			'path'    => $result,
+		);
+	}
+
+	/**
+	 * Move a file. On health failure, undoes both sides of the rename.
+	 *
+	 * @param string $src    Source path.
+	 * @param string $dest   Destination path.
+	 * @param string $reason Audit log reason.
+	 * @return array|WP_Error Success payload or WP_Error on failure.
+	 */
+	public function execute_move( string $src, string $dest, string $reason ): array|WP_Error {
+		if ( '' === $src || '' === $dest ) {
+			return new WP_Error( 'missing_param', 'src and dest are required.', array( 'status' => 400 ) );
+		}
+
+		$result = $this->guard->move_file( $src, $dest );
+		if ( is_wp_error( $result ) ) {
+			return new WP_Error( $result->get_error_code(), $result->get_error_message(), array( 'status' => 400 ) );
+		}
+
+		$err = $this->health->verify_or_revert(
+			function () use ( $result ) {
+				if ( is_file( $result['dest'] ) && ! unlink( $result['dest'] ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions
+					return new WP_Error( 'undo_failed', 'Could not delete moved file at destination.' );
+				}
+				return $this->guard->restore_latest_backup( $result['src'] );
+			},
+			'File move'
+		);
+		if ( $err ) {
+			return new WP_Error( $err->get_error_code(), $err->get_error_message(), array( 'status' => 500 ) );
+		}
+
+		$this->logger->log( 'file_moved', $result['src'] . ' → ' . $result['dest'], $reason );
+		return array(
+			'message' => 'File moved successfully.',
+			'src'     => $result['src'],
+			'dest'    => $result['dest'],
+		);
+	}
+
+	/**
+	 * Copy a file. On health failure, restore the destination.
+	 *
+	 * @param string $src    Source path.
+	 * @param string $dest   Destination path.
+	 * @param string $reason Audit log reason.
+	 * @return array|WP_Error Success payload or WP_Error on failure.
+	 */
+	public function execute_copy( string $src, string $dest, string $reason ): array|WP_Error {
+		if ( '' === $src || '' === $dest ) {
+			return new WP_Error( 'missing_param', 'src and dest are required.', array( 'status' => 400 ) );
+		}
+
+		$result = $this->guard->copy_file( $src, $dest );
+		if ( is_wp_error( $result ) ) {
+			return new WP_Error( $result->get_error_code(), $result->get_error_message(), array( 'status' => 400 ) );
+		}
+
+		$err = $this->health->verify_or_revert(
+			fn() => $this->guard->restore_latest_backup( $result['dest'] ),
+			'File copy'
+		);
+		if ( $err ) {
+			return new WP_Error( $err->get_error_code(), $err->get_error_message(), array( 'status' => 500 ) );
+		}
+
+		$this->logger->log( 'file_copied', $result['src'] . ' → ' . $result['dest'], $reason );
+		return array(
+			'message' => 'File copied successfully.',
+			'src'     => $result['src'],
+			'dest'    => $result['dest'],
+		);
+	}
+
+	/**
+	 * Delete a directory. Detect-only: no automatic revert.
+	 *
+	 * @param string $path   Absolute path to the directory.
+	 * @param string $reason Audit log reason.
+	 * @return array|WP_Error Success payload or WP_Error on failure.
+	 */
+	public function execute_delete_dir( string $path, string $reason ): array|WP_Error {
+		if ( '' === $path ) {
+			return new WP_Error( 'missing_param', 'path is required.', array( 'status' => 400 ) );
+		}
+
+		$result = $this->guard->delete_dir( $path );
+		if ( is_wp_error( $result ) ) {
+			return new WP_Error( $result->get_error_code(), $result->get_error_message(), array( 'status' => 400 ) );
+		}
+
+		$err = $this->health->verify_or_warn( 'Directory deletion' );
+		if ( $err ) {
+			return new WP_Error( $err->get_error_code(), $err->get_error_message(), array( 'status' => 500 ) );
+		}
+
+		$this->logger->log( 'dir_deleted', $result, '' !== $reason ? $reason : 'Human-initiated directory deletion.' );
+		return array(
+			'message' => 'Directory deleted successfully.',
+			'path'    => $result,
+		);
+	}
+
+	/**
+	 * Restore a specific backup to its original path.
+	 *
+	 * @param string $backup_file   Backup file name.
+	 * @param string $original_path Original file path to restore to.
+	 * @param string $reason        Audit log reason.
+	 * @return array|WP_Error Success payload or WP_Error on failure.
+	 */
+	public function execute_restore_backup( string $backup_file, string $original_path, string $reason ): array|WP_Error {
+		if ( '' === $backup_file || '' === $original_path ) {
+			return new WP_Error( 'missing_param', 'backup_file and original_path are required.', array( 'status' => 400 ) );
+		}
+
+		$result = $this->guard->restore_specific_backup( $original_path, $backup_file );
+		if ( is_wp_error( $result ) ) {
+			return new WP_Error( $result->get_error_code(), $result->get_error_message(), array( 'status' => 400 ) );
+		}
+
+		$err = $this->health->verify_or_revert(
+			fn() => $this->guard->restore_latest_backup( $original_path ),
+			'Backup restore'
+		);
+		if ( $err ) {
+			return new WP_Error( $err->get_error_code(), $err->get_error_message(), array( 'status' => 500 ) );
+		}
+
+		$this->logger->log( 'backup_restored', $original_path, $backup_file );
+		return array(
+			'message'       => 'Backup restored successfully.',
+			'original_path' => $original_path,
+			'backup_file'   => $backup_file,
+		);
+	}
+
+	// -------------------------------------------------------------------------
 	// Browser-facing AJAX handlers
 	// -------------------------------------------------------------------------
 
@@ -188,7 +463,6 @@ class Haydi_File_Tool extends Haydi_Ajax_Tool_Base {
 	 */
 	public function handle_edit_file(): void {
 		$this->verify();
-
 		$file_path = $this->post_param( 'filePath' );
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- nonce verified; exact strings must preserve code/newlines.
 		$old_string = isset( $_POST['oldString'] ) ? wp_unslash( $_POST['oldString'] ) : '';
@@ -197,58 +471,12 @@ class Haydi_File_Tool extends Haydi_Ajax_Tool_Base {
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- nonce verified.
 		$replace_all = isset( $_POST['replaceAll'] ) ? filter_var( wp_unslash( $_POST['replaceAll'] ), FILTER_VALIDATE_BOOLEAN ) : false;
 		$reason      = $this->post_param( 'reason' );
-
-		if ( '' === $file_path ) {
-			wp_send_json_error( array( 'message' => 'filePath is required.' ) );
-			return;
-		}
-
-		$prepared = $this->guard->prepare_edit_file( $file_path, $old_string, $new_string, $replace_all );
-		if ( is_wp_error( $prepared ) ) {
-			wp_send_json_error( array( 'message' => $prepared->get_error_message() ) );
-			return;
-		}
-
-		if ( str_ends_with( $prepared['path'], '.php' ) ) {
-			try {
-				token_get_all( $prepared['content'], TOKEN_PARSE );
-			} catch ( \ParseError | \CompileError $e ) {
-				wp_send_json_error(
-					array(
-						'message' => 'PHP syntax error — file not written: '
-							. $e->getMessage() . ' on line ' . $e->getLine(),
-					)
-				);
-				return;
-			}
-		}
-
-		$result = $this->guard->write_file( $prepared['path'], $prepared['content'] );
+		$result      = $this->execute_edit( $file_path, $old_string, $new_string, $replace_all, $reason );
 		if ( is_wp_error( $result ) ) {
 			wp_send_json_error( array( 'message' => $result->get_error_message() ) );
 			return;
 		}
-
-		if ( str_ends_with( $result, '.php' ) ) {
-			$err = $this->health->verify_or_revert(
-				fn() => $this->guard->restore_latest_backup( $result ),
-				'File edit'
-			);
-			if ( $err ) {
-				wp_send_json_error( array( 'message' => $err->get_error_message() ) );
-				return;
-			}
-		}
-
-		$this->logger->log( 'edit_applied', $result, $reason );
-
-		wp_send_json_success(
-			array(
-				'message' => 'File edited successfully.',
-				'path'    => $result,
-				'matches' => $prepared['matches'],
-			)
-		);
+		wp_send_json_success( $result );
 	}
 
 	/**
@@ -256,62 +484,15 @@ class Haydi_File_Tool extends Haydi_Ajax_Tool_Base {
 	 */
 	public function handle_apply_write(): void {
 		$this->verify();
-
 		$path = $this->post_param( 'path' );
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- nonce verified via $this->verify(); content validated by filesystem guard
 		$content = isset( $_POST['content'] ) ? wp_unslash( $_POST['content'] ) : '';
-
-		if ( '' === $path ) {
-			wp_send_json_error( array( 'message' => 'path is required.' ) );
-			return;
-		}
-
-		// Validate PHP syntax before writing to disk.
-		// TOKEN_PARSE makes the tokenizer throw ParseError/CompileError on syntax
-		// errors, giving us the same coverage as `php -l` without exec() — which
-		// is disabled on most shared hosts.
-		if ( str_ends_with( $path, '.php' ) ) {
-			try {
-				token_get_all( $content, TOKEN_PARSE );
-			} catch ( \ParseError | \CompileError $e ) {
-				wp_send_json_error(
-					array(
-						'message' => 'PHP syntax error — file not written: '
-							. $e->getMessage() . ' on line ' . $e->getLine(),
-					)
-				);
-				return;
-			}
-		}
-
-		$result = $this->guard->write_file( $path, $content );
+		$result  = $this->execute_write( $path, $content, '' );
 		if ( is_wp_error( $result ) ) {
 			wp_send_json_error( array( 'message' => $result->get_error_message() ) );
 			return;
 		}
-
-		// Post-write health check catches fatal runtime errors and exit()/die()
-		// calls that php -l cannot detect. Skipped for non-PHP writes since they
-		// cannot fatal WordPress on the next request.
-		if ( str_ends_with( $path, '.php' ) ) {
-			$err = $this->health->verify_or_revert(
-				fn() => $this->guard->restore_latest_backup( $result ),
-				'File write'
-			);
-			if ( $err ) {
-				wp_send_json_error( array( 'message' => $err->get_error_message() ) );
-				return;
-			}
-		}
-
-		$this->logger->log( 'write_applied', $result, 'Human-approved write.' );
-
-		wp_send_json_success(
-			array(
-				'message' => 'File written successfully.',
-				'path'    => $result,
-			)
-		);
+		wp_send_json_success( $result );
 	}
 
 	/**
@@ -321,27 +502,13 @@ class Haydi_File_Tool extends Haydi_Ajax_Tool_Base {
 	 */
 	public function handle_delete_file(): void {
 		$this->verify();
-		$path = $this->require_param( 'path' );
-		$this->dispatch_guard_result(
-			$this->guard->delete_file( $path ),
-			function ( $r ) {
-				$err = $this->health->verify_or_revert(
-					fn() => $this->guard->restore_latest_backup( $r ),
-					'File deletion'
-				);
-				if ( $err ) {
-					wp_send_json_error( array( 'message' => $err->get_error_message() ) );
-					return;
-				}
-				$this->logger->log( 'file_deleted', $r, 'Human-initiated deletion.' );
-				wp_send_json_success(
-					array(
-						'message' => 'File deleted successfully.',
-						'path'    => $r,
-					)
-				);
-			}
-		);
+		$path   = $this->require_param( 'path' );
+		$result = $this->execute_delete( $path, 'Human-initiated deletion.' );
+		if ( is_wp_error( $result ) ) {
+			wp_send_json_error( array( 'message' => $result->get_error_message() ) );
+			return;
+		}
+		wp_send_json_success( $result );
 	}
 
 	/**
@@ -351,27 +518,12 @@ class Haydi_File_Tool extends Haydi_Ajax_Tool_Base {
 		$this->verify();
 		$backup_file   = $this->require_param( 'backup_file' );
 		$original_path = $this->require_param( 'original_path' );
-		$result        = $this->guard->restore_specific_backup( $original_path, $backup_file );
+		$result        = $this->execute_restore_backup( $backup_file, $original_path, '' );
 		if ( is_wp_error( $result ) ) {
 			wp_send_json_error( array( 'message' => $result->get_error_message() ) );
 			return;
 		}
-		$err = $this->health->verify_or_revert(
-			fn() => $this->guard->restore_latest_backup( $original_path ),
-			'Backup restore'
-		);
-		if ( $err ) {
-			wp_send_json_error( array( 'message' => $err->get_error_message() ) );
-			return;
-		}
-		$this->logger->log( 'backup_restored', $original_path, $backup_file );
-		wp_send_json_success(
-			array(
-				'message'       => 'Backup restored successfully.',
-				'original_path' => $original_path,
-				'backup_file'   => $backup_file,
-			)
-		);
+		wp_send_json_success( $result );
 	}
 
 	/**
@@ -384,32 +536,12 @@ class Haydi_File_Tool extends Haydi_Ajax_Tool_Base {
 		$src    = $this->require_param( 'src' );
 		$dest   = $this->require_param( 'dest' );
 		$reason = $this->post_param( 'reason' );
-		$this->dispatch_guard_result(
-			$this->guard->move_file( $src, $dest ),
-			function ( $r ) use ( $reason ) {
-				$err = $this->health->verify_or_revert(
-					function () use ( $r ) {
-						if ( is_file( $r['dest'] ) && ! unlink( $r['dest'] ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions
-							return new WP_Error( 'undo_failed', 'Could not delete moved file at destination.' );
-						}
-						return $this->guard->restore_latest_backup( $r['src'] );
-					},
-					'File move'
-				);
-				if ( $err ) {
-					wp_send_json_error( array( 'message' => $err->get_error_message() ) );
-					return;
-				}
-				$this->logger->log( 'file_moved', $r['src'] . ' → ' . $r['dest'], $reason );
-				wp_send_json_success(
-					array(
-						'message' => 'File moved successfully.',
-						'src'     => $r['src'],
-						'dest'    => $r['dest'],
-					)
-				);
-			}
-		);
+		$result = $this->execute_move( $src, $dest, $reason );
+		if ( is_wp_error( $result ) ) {
+			wp_send_json_error( array( 'message' => $result->get_error_message() ) );
+			return;
+		}
+		wp_send_json_success( $result );
 	}
 
 	/**
@@ -423,27 +555,12 @@ class Haydi_File_Tool extends Haydi_Ajax_Tool_Base {
 		$src    = $this->require_param( 'src' );
 		$dest   = $this->require_param( 'dest' );
 		$reason = $this->post_param( 'reason' );
-		$this->dispatch_guard_result(
-			$this->guard->copy_file( $src, $dest ),
-			function ( $r ) use ( $reason ) {
-				$err = $this->health->verify_or_revert(
-					fn() => $this->guard->restore_latest_backup( $r['dest'] ),
-					'File copy'
-				);
-				if ( $err ) {
-					wp_send_json_error( array( 'message' => $err->get_error_message() ) );
-					return;
-				}
-				$this->logger->log( 'file_copied', $r['src'] . ' → ' . $r['dest'], $reason );
-				wp_send_json_success(
-					array(
-						'message' => 'File copied successfully.',
-						'src'     => $r['src'],
-						'dest'    => $r['dest'],
-					)
-				);
-			}
-		);
+		$result = $this->execute_copy( $src, $dest, $reason );
+		if ( is_wp_error( $result ) ) {
+			wp_send_json_error( array( 'message' => $result->get_error_message() ) );
+			return;
+		}
+		wp_send_json_success( $result );
 	}
 
 	/**
@@ -454,23 +571,13 @@ class Haydi_File_Tool extends Haydi_Ajax_Tool_Base {
 	 */
 	public function handle_delete_dir(): void {
 		$this->verify();
-		$path = $this->require_param( 'path' );
-		$this->dispatch_guard_result(
-			$this->guard->delete_dir( $path ),
-			function ( $r ) {
-				$err = $this->health->verify_or_warn( 'Directory deletion' );
-				if ( $err ) {
-					wp_send_json_error( array( 'message' => $err->get_error_message() ) );
-					return;
-				}
-				$this->logger->log( 'dir_deleted', $r, 'Human-initiated directory deletion.' );
-				wp_send_json_success(
-					array(
-						'message' => 'Directory deleted successfully.',
-						'path'    => $r,
-					)
-				);
-			}
-		);
+		$path   = $this->require_param( 'path' );
+		$reason = $this->post_param( 'reason' );
+		$result = $this->execute_delete_dir( $path, '' !== $reason ? $reason : 'Human-initiated directory deletion.' );
+		if ( is_wp_error( $result ) ) {
+			wp_send_json_error( array( 'message' => $result->get_error_message() ) );
+			return;
+		}
+		wp_send_json_success( $result );
 	}
 }
