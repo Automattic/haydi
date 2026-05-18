@@ -623,7 +623,10 @@ class Haydi_Rest_Api {
 					$id,
 					array(
 						'protocolVersion' => '2024-11-05',
-						'capabilities'    => array( 'tools' => new \stdClass() ),
+						'capabilities'    => array(
+							'tools'     => new \stdClass(),
+							'resources' => new \stdClass(),
+						),
 						'serverInfo'      => array(
 							'name'    => 'haydi',
 							'version' => '1.0.0',
@@ -658,6 +661,40 @@ class Haydi_Rest_Api {
 							'isError' => $is_err ? true : null,
 						),
 						fn( $v ) => null !== $v
+					)
+				);
+
+			case 'resources/list':
+				return $this->mcp_ok(
+					$id,
+					array(
+						'resources' => array(
+							array(
+								'uri'      => 'haydi://agents',
+								'name'     => 'Agent instructions',
+								'mimeType' => 'text/markdown',
+							),
+						),
+					)
+				);
+
+			case 'resources/read':
+				$uri = (string) ( $params['uri'] ?? '' );
+				if ( 'haydi://agents' !== $uri ) {
+					return $this->mcp_error( $id, -32602, 'Unknown resource URI' );
+				}
+				$agents_file = plugin_dir_path( __DIR__ ) . 'AGENTS.md';
+				$contents    = file_exists( $agents_file ) ? file_get_contents( $agents_file ) : ''; // phpcs:ignore WordPress.WP.AlternativeFunctions
+				return $this->mcp_ok(
+					$id,
+					array(
+						'contents' => array(
+							array(
+								'uri'      => 'haydi://agents',
+								'mimeType' => 'text/markdown',
+								'text'     => $contents,
+							),
+						),
 					)
 				);
 

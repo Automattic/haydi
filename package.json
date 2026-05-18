@@ -17,7 +17,7 @@
     "lint:js": "eslint assets/ tests/ playwright.config.js eslint.config.js",
     "lint:php": "vendor/bin/phpcs",
     "lint": "npm run lint:js && npm run lint:php",
-    "dist": "rm -rf dist && mkdir -p dist/haydi && cp -r admin assets includes haydi.php readme.txt LICENSE dist/haydi/ && terser dist/haydi/assets/admin.js -o dist/haydi/assets/admin.js --compress --mangle && cleancss dist/haydi/assets/admin.css -o dist/haydi/assets/admin.css && cd dist && zip -r haydi.zip haydi && rm -rf haydi && echo 'Created dist/haydi.zip'",
+    "dist": "rm -rf dist && mkdir -p dist/haydi && cp -r admin assets includes haydi.php readme.txt LICENSE AGENTS.md dist/haydi/ && terser dist/haydi/assets/admin.js -o dist/haydi/assets/admin.js --compress --mangle && cleancss dist/haydi/assets/admin.css -o dist/haydi/assets/admin.css && cd dist && zip -r haydi.zip haydi && rm -rf haydi && echo 'Created dist/haydi.zip'",
     "release": "bash scripts/release.sh",
     "gh:release": "bash scripts/gh-release.sh",
     "prepare": "husky"

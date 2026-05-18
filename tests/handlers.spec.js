@@ -759,6 +759,42 @@ test.describe('Haydi_Ajax_Handlers', () => {
             expect(res.result.isError).toBe(true);
         });
 
+        test('MCP initialize — capabilities include resources', async () => {
+            const res = await mcp({ jsonrpc: '2.0', method: 'initialize', id: 6 }, apiToken);
+            expect(res.result.capabilities).toHaveProperty('resources');
+        });
+
+        test('MCP resources/list — returns haydi://agents resource', async () => {
+            const res = await mcp({ jsonrpc: '2.0', method: 'resources/list', id: 7 }, apiToken);
+            const uris = res.result.resources.map(r => r.uri);
+            expect(uris).toContain('haydi://agents');
+            const entry = res.result.resources.find(r => r.uri === 'haydi://agents');
+            expect(entry.mimeType).toBe('text/markdown');
+        });
+
+        test('MCP resources/read — returns AGENTS.md content', async () => {
+            const res = await mcp({
+                jsonrpc: '2.0',
+                method:  'resources/read',
+                id:      8,
+                params:  { uri: 'haydi://agents' },
+            }, apiToken);
+            const text = res.result.contents[0].text;
+            expect(text).toContain('# Haydi');
+            expect(text).toContain('haydi_get_allowed_roots');
+        });
+
+        test('MCP resources/read — unknown URI returns error', async () => {
+            const res = await mcp({
+                jsonrpc: '2.0',
+                method:  'resources/read',
+                id:      9,
+                params:  { uri: 'haydi://nonexistent' },
+            }, apiToken);
+            expect(res).toHaveProperty('error');
+            expect(res.error.code).toBe(-32602);
+        });
+
         test('Revoke token — revoked token is rejected by /status', async () => {
             // Find the token hash via haydi_list_tokens.
             const listRes = await post({ action: 'haydi_list_tokens' });
