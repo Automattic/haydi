@@ -340,6 +340,10 @@ class Haydi_Filesystem_Guard {
 	 * @return string|WP_Error  Resolved path on success.
 	 */
 	public function write_file( string $path, string $content ) {
+		if ( ! wp_is_file_mod_allowed( $this->resolve_file_mod_context( $path ) ) ) {
+			return new WP_Error( 'file_mod_not_allowed', 'File modifications are not allowed on this site.', array( 'status' => 403 ) );
+		}
+
 		// Validate — existing or new file.
 		$validated = file_exists( $path )
 			? $this->validate_path( $path )
@@ -470,6 +474,10 @@ class Haydi_Filesystem_Guard {
 	 * @return true|WP_Error
 	 */
 	public function restore_specific_backup( string $original_path, string $backup_filename ) {
+		if ( ! wp_is_file_mod_allowed( $this->resolve_file_mod_context( $original_path ) ) ) {
+			return new WP_Error( 'file_mod_not_allowed', 'File modifications are not allowed on this site.', array( 'status' => 403 ) );
+		}
+
 		$backup_dir  = WP_CONTENT_DIR . '/uploads/haydi-backups';
 		$backup_path = $backup_dir . '/' . basename( $backup_filename );
 
@@ -546,6 +554,10 @@ class Haydi_Filesystem_Guard {
 	 * @return string|WP_Error  Resolved path of the deleted file on success.
 	 */
 	public function delete_file( string $path ) {
+		if ( ! wp_is_file_mod_allowed( $this->resolve_file_mod_context( $path ) ) ) {
+			return new WP_Error( 'file_mod_not_allowed', 'File modifications are not allowed on this site.', array( 'status' => 403 ) );
+		}
+
 		$validated = $this->validate_path( $path );
 		if ( is_wp_error( $validated ) ) {
 			return $validated;
@@ -575,6 +587,13 @@ class Haydi_Filesystem_Guard {
 	 * @return array{src:string,dest:string}|WP_Error
 	 */
 	public function move_file( string $src, string $dest ) {
+		if ( ! wp_is_file_mod_allowed( $this->resolve_file_mod_context( $src ) ) ) {
+			return new WP_Error( 'file_mod_not_allowed', 'File modifications are not allowed on this site.', array( 'status' => 403 ) );
+		}
+		if ( ! wp_is_file_mod_allowed( $this->resolve_file_mod_context( $dest ) ) ) {
+			return new WP_Error( 'file_mod_not_allowed', 'File modifications are not allowed on this site.', array( 'status' => 403 ) );
+		}
+
 		$validated_src = $this->validate_path( $src );
 		if ( is_wp_error( $validated_src ) ) {
 			return $validated_src;
@@ -618,6 +637,10 @@ class Haydi_Filesystem_Guard {
 	 * @return array{src:string,dest:string}|WP_Error
 	 */
 	public function copy_file( string $src, string $dest ) {
+		if ( ! wp_is_file_mod_allowed( $this->resolve_file_mod_context( $dest ) ) ) {
+			return new WP_Error( 'file_mod_not_allowed', 'File modifications are not allowed on this site.', array( 'status' => 403 ) );
+		}
+
 		$validated_src = $this->validate_path( $src );
 		if ( is_wp_error( $validated_src ) ) {
 			return $validated_src;
@@ -667,6 +690,10 @@ class Haydi_Filesystem_Guard {
 	 * @return string|WP_Error  Resolved path of the deleted directory on success.
 	 */
 	public function delete_dir( string $path ) {
+		if ( ! wp_is_file_mod_allowed( $this->resolve_file_mod_context( $path ) ) ) {
+			return new WP_Error( 'file_mod_not_allowed', 'File modifications are not allowed on this site.', array( 'status' => 403 ) );
+		}
+
 		$validated = $this->validate_path( $path );
 		if ( is_wp_error( $validated ) ) {
 			return $validated;
@@ -840,6 +867,35 @@ class Haydi_Filesystem_Guard {
 		}
 
 		return $files;
+	}
+
+	/**
+	 * Map a filesystem path to its wp_is_file_mod_allowed() context string.
+	 *
+	 * Resolves the path (or its nearest existing ancestor for new paths) and
+	 * checks it against the plugin and theme roots so the correct context is
+	 * passed to wp_is_file_mod_allowed().
+	 */
+	private function resolve_file_mod_context( string $path ): string {
+		$real = realpath( $path );
+		if ( false === $real ) {
+			$real = realpath( dirname( $path ) );
+		}
+		if ( false === $real ) {
+			return 'upload_files';
+		}
+
+		$plugin_root = realpath( WP_PLUGIN_DIR );
+		if ( false !== $plugin_root && $this->path_is_inside( $real, $plugin_root ) ) {
+			return 'plugin_files';
+		}
+
+		$themes_root = realpath( get_theme_root() );
+		if ( false !== $themes_root && $this->path_is_inside( $real, $themes_root ) ) {
+			return 'theme_files';
+		}
+
+		return 'upload_files';
 	}
 
 	private function path_is_inside( string $path, string $root ): bool {

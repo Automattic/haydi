@@ -65,6 +65,10 @@ class Haydi_Plugin_Tool extends Haydi_Ajax_Tool_Base {
 	 * @return array|WP_Error Success payload or WP_Error on failure.
 	 */
 	public function execute_install( string $slug, string $reason ): array|WP_Error {
+		if ( ! wp_is_file_mod_allowed( 'plugin_files' ) ) {
+			return new WP_Error( 'file_mod_not_allowed', 'Plugin installation is not allowed on this site.', array( 'status' => 403 ) );
+		}
+
 		if ( '' === $slug ) {
 			return new WP_Error( 'missing_param', 'slug is required.', array( 'status' => 400 ) );
 		}

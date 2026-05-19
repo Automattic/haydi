@@ -728,7 +728,11 @@ class Haydi_Rest_Api {
 	}
 
 	private function mcp_tool_definitions(): array {
-		return array(
+		$can_mod_plugins = wp_is_file_mod_allowed( 'plugin_files' );
+		$can_mod_themes  = wp_is_file_mod_allowed( 'theme_files' );
+		$can_mod_files   = $can_mod_plugins || $can_mod_themes;
+
+		$tools = array(
 			// File — read.
 			array(
 				'name'        => 'haydi_list_files',
@@ -1079,6 +1083,25 @@ class Haydi_Rest_Api {
 				),
 			),
 		);
+
+		if ( ! $can_mod_files ) {
+			$write_tool_names = array(
+				'haydi_write_file',
+				'haydi_edit_file',
+				'haydi_delete_file',
+				'haydi_move_file',
+				'haydi_copy_file',
+				'haydi_delete_directory',
+				'haydi_restore_backup',
+			);
+			$tools            = array_values( array_filter( $tools, fn( $t ) => ! in_array( $t['name'], $write_tool_names, true ) ) );
+		}
+
+		if ( ! $can_mod_plugins ) {
+			$tools = array_values( array_filter( $tools, fn( $t ) => 'haydi_install_plugin' !== $t['name'] ) );
+		}
+
+		return $tools;
 	}
 
 	/**
