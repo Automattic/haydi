@@ -1,5 +1,5 @@
 {
-  "core": "https://downloads.wordpress.org/release/wordpress-7.0-RC3.zip",
+  "core": "https://downloads.wordpress.org/release/wordpress-7.0.zip",
   "phpVersion": "8.2",
   "plugins": [
     "https://downloads.wordpress.org/plugin/ai-provider-for-anthropic.1.0.2.zip",
