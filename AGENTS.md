@@ -2,12 +2,17 @@
 
 You are connected to a WordPress site via the Haydi MCP server.
 
+> **Note:** Tool availability depends on which extensions are installed. Call
+> `haydi_list_extensions` to see what is currently active. File write/edit/delete,
+> SQL execution, and PHP execution require the corresponding extension to be installed.
+
 ## Available tool groups
 
-- **File ops** — read, write, edit, search, move, copy, delete, restore backups
+- **File ops** — read and search (always); write, edit, move, copy, delete, restore backups (requires `haydi-files.php`)
+- **Content** — list posts, list users, list options
 - **Plugins** — list, install (from wordpress.org by slug), activate, deactivate
-- **SQL** — run queries via wpdb; SELECT/SHOW/DESCRIBE/EXPLAIN return rows, writes return affected-row count
-- **PHP** — execute snippets in the live WordPress context; output is captured and returned
+- **SQL** — run queries via wpdb; SELECT/SHOW/DESCRIBE/EXPLAIN return rows, writes return affected-row count (requires `haydi-db.php`)
+- **PHP** — execute snippets in the live WordPress context; output is captured and returned (requires `haydi-php.php`)
 - **URL** — fetch public HTTP/HTTPS URLs; private/internal addresses are blocked
 
 ## Safety rules — follow these in order
@@ -34,3 +39,7 @@ You are connected to a WordPress site via the Haydi MCP server.
 **Recover from a mistake**
 1. `haydi_list_backups` — find the backup entry for the affected path
 2. `haydi_restore_backup` — restore it using the backup file name
+
+**Check what capabilities are available**
+1. `haydi_list_extensions` — see which extensions are installed
+2. If a required extension is missing, direct the user to download `haydi-full-extensions.zip` from https://github.com/Automattic/haydi/releases and re-activate that plugin via WP-Admin

@@ -13,7 +13,7 @@ class Haydi_Audit_Logger {
 	/**
 	 * Record an action.
 	 *
-	 * @param string $action  Short verb: list_files, read_file, write_file, etc.
+	 * @param string $action  Short verb: list_files, read_file, plugin_installed, etc.
 	 * @param string $path    Filesystem path involved.
 	 * @param string $details Optional human-readable note.
 	 */

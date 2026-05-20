@@ -6,6 +6,11 @@
  * test to load and their pure-PHP logic to run without a live WordPress.
  */
 
+// Patchwork must be loaded before any functions it will intercept are defined.
+// Brain\Monkey's setUp() re-initialises Patchwork per test, but the library
+// itself must be present first so it can wrap function definitions as they happen.
+require_once dirname( __DIR__, 2 ) . '/vendor/antecedent/patchwork/Patchwork.php';
+
 // ---------------------------------------------------------------------------
 // WordPress-like constants
 // ---------------------------------------------------------------------------
@@ -86,11 +91,9 @@ if ( ! class_exists( 'WP_REST_Response' ) ) {
     }
 }
 
-if ( ! function_exists( 'wp_json_encode' ) ) {
-    function wp_json_encode( $data, $options = 0, $depth = 512 ) { // phpcs:ignore
-        return json_encode( $data, $options, $depth );
-    }
-}
+// WP function stubs are defined in a separate file required AFTER Patchwork
+// so Brain\Monkey can intercept them. See stubs/wp-functions.php.
+require_once __DIR__ . '/stubs/wp-functions.php';
 
 // Sentinel exception used by tests to halt handler execution at the point
 // where production would call wp_die() inside wp_send_json_error/success.
@@ -115,13 +118,16 @@ require_once $plugin_root . '/includes/class-audit-logger.php';
 require_once $plugin_root . '/includes/class-jetpack-context.php';
 require_once $plugin_root . '/includes/class-model-limits.php';
 require_once $plugin_root . '/includes/class-ai-client.php';
+require_once $plugin_root . '/includes/functions.php';
 require_once $plugin_root . '/includes/tools/class-ajax-tool-base.php';
 require_once $plugin_root . '/includes/tools/class-file-tool.php';
 require_once $plugin_root . '/includes/tools/class-plugin-tool.php';
-require_once $plugin_root . '/includes/tools/class-query-tool.php';
-require_once $plugin_root . '/includes/tools/class-php-tool.php';
 require_once $plugin_root . '/includes/tools/class-fetch-url-tool.php';
 require_once $plugin_root . '/includes/class-chat-store.php';
 require_once $plugin_root . '/includes/class-ajax-handlers.php';
 require_once $plugin_root . '/includes/class-api-token-manager.php';
 require_once $plugin_root . '/includes/class-rest-api.php';
+// Load extension files so tests that reference extension classes can find them.
+require_once $plugin_root . '/extensions/haydi-files.php';
+require_once $plugin_root . '/extensions/haydi-db.php';
+require_once $plugin_root . '/extensions/haydi-php.php';

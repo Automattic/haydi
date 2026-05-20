@@ -2050,179 +2050,71 @@
     // -------------------------------------------------------------------------
 
     var PROPOSALS = {
-        write: {
-            kind:         'write',
-            responseKey:  'pending_write',
-            sectionId:    'wpc-proposal-section',
-            confirmBtnId: 'wpc-btn-apply',
-            cancelBtnId:  'wpc-btn-reject',
-            statusId:     'wpc-apply-status',
-            ajaxAction:   'haydi_apply_write',
-            payloadKeys:  ['path', 'content'],
-            label:        'write',
-            confirmText:  function (p) { return 'Apply the proposed change to:\n' + p.path + '\n\nA backup will be created first. Continue?'; },
-            // Custom show — also fetches the current file content for the unified diff.
-            show: function (pw) {
-                var lastSlash = pw.path.lastIndexOf('/');
-                $('#wpc-proposal-filename').text(lastSlash >= 0 ? pw.path.slice(lastSlash + 1) : pw.path);
-                $('#wpc-proposal-badge').text('Write file');
-                $('#wpc-proposal-dir').text(lastSlash >= 0 ? pw.path.slice(0, lastSlash + 1) : '');
-                $('#wpc-proposal-reason').text(pw.reason || '(no reason given)');
-                $('#wpc-apply-status').text('').removeClass('is-error');
-                $('#wpc-proposal-section').removeClass('wpc-hidden');
-                $('#wpc-diff-unified').html('<span class="wpc-dl wpc-dl-ctx"> Loading\u2026\n</span>');
-                syncEditorPanelVisibility();
-                scrollChatToBottom();
-                post('haydi_read_file', { path: pw.path }, function (res) {
-                    $('#wpc-diff-unified').html(renderUnifiedDiff(res.success ? res.data.content : '', pw.content));
-                });
+        extension: {
+            kind:         'extension',
+            responseKey:  'pending_extension',
+            sectionId:    'wpc-extension-section',
+            confirmBtnId: 'wpc-btn-confirm-extension',
+            cancelBtnId:  'wpc-btn-cancel-extension',
+            statusId:     'wpc-extension-status',
+            label:        'action',
+            getAjaxAction: function (p) { return p.ajax_action || ''; },
+            buildPayload: function (p) {
+                var out = {};
+                (p.payload_keys || []).forEach(function (k) { out[k] = p[k] !== undefined ? p[k] : ''; });
+                return out;
             },
-            successUi: function (p) {
-                return 'The change was applied to ' + fileViewMarkdownLink(p.path) + '.' + styleVariationRefreshHint(p.path);
-            },
-            successAi: function (p) {
-                return 'Write applied successfully by the user.' + styleVariationRefreshHint(p.path);
-            },
-            cancelUi:  'I rejected the proposed change.',
-            cancelAi:  'The user rejected this proposed change. Please reconsider or ask for clarification.',
-        },
-
-        edit: {
-            kind:         'edit',
-            responseKey:  'pending_edit',
-            sectionId:    'wpc-proposal-section',
-            confirmBtnId: 'wpc-btn-apply',
-            cancelBtnId:  'wpc-btn-reject',
-            statusId:     'wpc-apply-status',
-            ajaxAction:   'haydi_edit_file',
-            payloadKeys:  ['filePath', 'oldString', 'newString', 'replaceAll', 'reason'],
-            label:        'edit',
-            confirmText:  function (p) { return 'Apply the proposed edit to:\n' + p.filePath + '\n\nA backup will be created first. Continue?'; },
             show: function (p) {
-                var lastSlash = p.filePath.lastIndexOf('/');
-                $('#wpc-proposal-filename').text(lastSlash >= 0 ? p.filePath.slice(lastSlash + 1) : p.filePath);
-                $('#wpc-proposal-badge').text('Edit file');
-                $('#wpc-proposal-dir').text(lastSlash >= 0 ? p.filePath.slice(0, lastSlash + 1) : '');
-                $('#wpc-proposal-reason').text(p.reason || '(no reason given)');
-                $('#wpc-apply-status').text('').removeClass('is-error');
-                $('#wpc-proposal-section').removeClass('wpc-hidden');
-                $('#wpc-diff-unified').html('<span class="wpc-dl wpc-dl-ctx"> Loading\u2026\n</span>');
+                $('#wpc-extension-label').text(p.label || 'Action');
+                $('#wpc-extension-reason').text(p.reason || '(no reason given)');
+                $('#wpc-extension-section').removeClass('wpc-hidden');
+                $('#wpc-extension-status').text('').removeClass('is-error');
                 syncEditorPanelVisibility();
                 scrollChatToBottom();
-                post('haydi_read_file', { path: p.filePath }, function (res) {
-                    if (!res.success) {
-                        $('#wpc-diff-unified').html('<span class="wpc-dl wpc-dl-del"> ' + esc(res.data.message || 'Failed to read file.') + '\n</span>');
-                        return;
-                    }
-                    var edit = applyExactEdit(res.data.content, p.oldString || '', p.newString || '', isReplaceAll(p.replaceAll));
-                    if (!edit.ok) {
-                        $('#wpc-apply-status').text(edit.error).addClass('is-error');
-                        $('#wpc-diff-unified').html(renderUnifiedDiff(res.data.content, res.data.content));
-                        return;
-                    }
-                    $('#wpc-diff-unified').html(renderUnifiedDiff(res.data.content, edit.content));
-                });
+
+                var $payload = $('#wpc-extension-payload');
+
+                if (p.tool_name === 'write_file' && p.path) {
+                    $payload.html('<span class="wpc-dl wpc-dl-ctx"> Loading…\n</span>');
+                    post('haydi_read_file', { path: p.path }, function (res) {
+                        $payload.html(renderUnifiedDiff(res.success ? res.data.content : '', p.content || ''));
+                    });
+                } else if (p.tool_name === 'edit' && p.filePath) {
+                    $payload.html('<span class="wpc-dl wpc-dl-ctx"> Loading…\n</span>');
+                    post('haydi_read_file', { path: p.filePath }, function (res) {
+                        if (!res.success) {
+                            $payload.html('<span class="wpc-dl wpc-dl-del"> ' + esc(res.data.message || 'Failed to read file.') + '\n</span>');
+                            return;
+                        }
+                        var edit = applyExactEdit(res.data.content, p.oldString || '', p.newString || '', isReplaceAll(p.replaceAll));
+                        if (!edit.ok) {
+                            $('#wpc-extension-status').text(edit.error).addClass('is-error');
+                            $payload.html(renderUnifiedDiff(res.data.content, res.data.content));
+                            return;
+                        }
+                        $payload.html(renderUnifiedDiff(res.data.content, edit.content));
+                    });
+                } else {
+                    var dump = {};
+                    (p.payload_keys || []).forEach(function (k) {
+                        if (k !== 'reason') { dump[k] = p[k] !== undefined ? p[k] : ''; }
+                    });
+                    $payload.text(JSON.stringify(dump, null, 2));
+                }
             },
             successUi: function (p) {
-                return 'The edit was applied to ' + fileViewMarkdownLink(p.filePath) + '.' + styleVariationRefreshHint(p.filePath);
+                // For destructive ops the file is gone — skip the view link.
+                var noLink = p.tool_name === 'delete_file' || p.tool_name === 'delete_dir';
+                var path   = noLink ? '' : (p.path || p.filePath || p.dest || p.original_path || '');
+                var base   = (p.label || 'Action') + ' completed.';
+                return path ? base + ' ' + fileViewMarkdownLink(path) + styleVariationRefreshHint(path) : base;
             },
             successAi: function (p, data) {
-                return 'Edit applied successfully by the user. Matches replaced: ' + (data.matches || 1) + '.' + styleVariationRefreshHint(p.filePath);
-            },
-            cancelUi: 'I rejected the proposed edit.',
-            cancelAi: 'The user rejected this proposed edit. Please reconsider or ask for clarification.',
-        },
-
-        delete: {
-            kind:         'delete',
-            responseKey:  'pending_delete',
-            sectionId:    'wpc-delete-section',
-            confirmBtnId: 'wpc-btn-confirm-delete',
-            cancelBtnId:  'wpc-btn-cancel-delete',
-            statusId:     'wpc-delete-status',
-            ajaxAction:   'haydi_delete_file',
-            payloadKeys:  ['path'],
-            label:        'deletion',
-            showFields:   { 'wpc-delete-path': 'path', 'wpc-delete-reason': 'reason' },
-            confirmText:  function (p) { return 'Permanently delete:\n' + p.path + '\n\nA backup will be created first. Continue?'; },
-            successUi:    function (p) { return p.path + ' was deleted.'; },
-            successAi:    function () { return 'File deleted successfully.'; },
-        },
-
-        move: {
-            kind:         'move',
-            responseKey:  'pending_move',
-            sectionId:    'wpc-move-section',
-            confirmBtnId: 'wpc-btn-confirm-move',
-            cancelBtnId:  'wpc-btn-cancel-move',
-            statusId:     'wpc-move-status',
-            ajaxAction:   'haydi_move_file',
-            payloadKeys:  ['src', 'dest', 'reason'],
-            label:        'move',
-            showFields:   { 'wpc-move-src': 'src', 'wpc-move-dest': 'dest', 'wpc-move-reason': 'reason' },
-            successUi:    function (p) { return p.src + ' moved to ' + p.dest + '.'; },
-            successAi:    function (p) { return 'File moved successfully from ' + p.src + ' to ' + p.dest + '.'; },
-        },
-
-        copy: {
-            kind:         'copy',
-            responseKey:  'pending_copy',
-            sectionId:    'wpc-copy-section',
-            confirmBtnId: 'wpc-btn-confirm-copy',
-            cancelBtnId:  'wpc-btn-cancel-copy',
-            statusId:     'wpc-copy-status',
-            ajaxAction:   'haydi_copy_file',
-            payloadKeys:  ['src', 'dest', 'reason'],
-            label:        'copy',
-            showFields:   { 'wpc-copy-src': 'src', 'wpc-copy-dest': 'dest', 'wpc-copy-reason': 'reason' },
-            successUi:    function (p) { return p.src + ' copied to ' + p.dest + '.'; },
-            successAi:    function (p) { return 'File copied successfully from ' + p.src + ' to ' + p.dest + '.'; },
-        },
-
-        rmdir: {
-            kind:         'rmdir',
-            responseKey:  'pending_rmdir',
-            sectionId:    'wpc-rmdir-section',
-            confirmBtnId: 'wpc-btn-confirm-rmdir',
-            cancelBtnId:  'wpc-btn-cancel-rmdir',
-            statusId:     'wpc-rmdir-status',
-            ajaxAction:   'haydi_delete_dir',
-            payloadKeys:  ['path'],
-            label:        'directory deletion',
-            showFields:   { 'wpc-rmdir-path': 'path', 'wpc-rmdir-reason': 'reason' },
-            confirmText:  function (p) { return 'Permanently delete directory and all its contents:\n' + p.path + '\n\nAll files will be backed up first. Continue?'; },
-            successUi:    function (p) { return 'Directory ' + p.path + ' was deleted.'; },
-            successAi:    function () { return 'Directory deleted successfully.'; },
-        },
-
-        query: {
-            kind:         'query',
-            responseKey:  'pending_query',
-            sectionId:    'wpc-query-section',
-            confirmBtnId: 'wpc-btn-execute-query',
-            cancelBtnId:  'wpc-btn-cancel-query',
-            statusId:     'wpc-query-status',
-            ajaxAction:   'haydi_execute_query',
-            payloadKeys:  ['sql', 'reason'],
-            label:        'query',
-            showFields:   { 'wpc-query-reason': 'reason', 'wpc-query-sql': 'sql' },
-            confirmText:  function () { return 'Apply this database change? This may be hard to undo.\n\nContinue?'; },
-            // Custom success — SELECT vs write needs different summary line, and the
-            // raw `data.result` from the server is what gets fed back to the AI.
-            onSuccess: function (p, data) {
-                var summary = 'Done.';
-                if (data.type === 'select') {
-                    summary = 'Done. Found ' + (Number(data.count) || 0) + ' result(s).';
-                } else if (data.type === 'write') {
-                    if (typeof data.rows === 'number') {
-                        summary = 'Done. Updated ' + data.rows + ' item(s).';
-                    } else {
-                        summary = 'Done. Updated site data.';
-                    }
-                }
-                $('#wpc-query-status').text(summary);
-                appendMessage('assistant', summary);
-                return data.result;
+                var noLink = p.tool_name === 'delete_file' || p.tool_name === 'delete_dir';
+                var path   = noLink ? '' : (p.path || p.filePath || p.dest || p.original_path || '');
+                var base   = (p.label || 'Action') + ' completed successfully.';
+                if (path) { return base + ' ' + fileViewMarkdownLink(path) + styleVariationRefreshHint(path); }
+                return base + (data && data.result ? ' ' + data.result : '');
             },
         },
 
@@ -2285,53 +2177,6 @@
             confirmText:  function (p) { return 'Deactivate plugin "' + p.plugin + '"?\n\nThis may affect site functionality. Continue?'; },
             successUi:    function (p) { return 'Plugin "' + p.plugin + '" deactivated.'; },
             successAi:    function (p) { return 'Plugin "' + p.plugin + '" deactivated successfully.'; },
-        },
-
-        php: {
-            kind:         'php',
-            responseKey:  'pending_php',
-            sectionId:    'wpc-php-section',
-            confirmBtnId: 'wpc-btn-confirm-php',
-            cancelBtnId:  'wpc-btn-cancel-php',
-            statusId:     'wpc-php-status',
-            ajaxAction:   'haydi_run_php',
-            payloadKeys:  ['code', 'reason'],
-            label:        'PHP execution',
-            showFields:   { 'wpc-php-reason': 'reason', 'wpc-php-code': 'code' },
-            confirmText:  function () { return 'Execute the proposed PHP code?\n\nThis runs server-side PHP in the WordPress context. Continue?'; },
-            // The captured PHP output is fed back to the AI so it can summarize
-            // anything useful in the follow-up response.
-            onSuccess: function (p, data) {
-                var output = data.output || '(no output)';
-                $('#wpc-php-status').text('Done.');
-                appendMessage('assistant', 'Action completed.');
-                return 'PHP executed successfully. Output:\n' + output;
-            },
-        },
-
-        restore_backup: {
-            kind:         'restore_backup',
-            responseKey:  'pending_restore',
-            sectionId:    'wpc-restore-section',
-            confirmBtnId: 'wpc-btn-confirm-restore',
-            cancelBtnId:  'wpc-btn-cancel-restore',
-            statusId:     'wpc-restore-status',
-            ajaxAction:   'haydi_restore_backup',
-            payloadKeys:  ['backup_file', 'original_path', 'reason'],
-            label:        'restore',
-            show: function (p) {
-                var datePart = (p.backup_file || '').split('.').slice(-2, -1)[0] || '';
-                var dateStr = datePart ? datePart.replace('_', ' ') + ' UTC' : p.backup_file;
-                $('#wpc-restore-path').text(p.original_path || '');
-                $('#wpc-restore-backup-info').text('Backup from: ' + dateStr);
-                $('#wpc-restore-reason').text(p.reason || '');
-                $('#wpc-restore-section').removeClass('wpc-hidden');
-                $('#wpc-restore-status').text('').removeClass('is-error');
-                syncEditorPanelVisibility();
-                scrollChatToBottom();
-            },
-            successUi:    function (p) { return p.original_path + ' restored from backup.'; },
-            successAi:    function (p) { return 'Backup restored successfully to ' + p.original_path + '.'; },
         },
     };
 
@@ -2651,8 +2496,11 @@
 
             $('#' + cfg.statusId).text('Working\u2026').removeClass('is-error');
 
+            var ajaxAction = cfg.getAjaxAction ? cfg.getAjaxAction(p) : cfg.ajaxAction;
+            var postPayload = cfg.buildPayload ? cfg.buildPayload(p) : buildPayload(cfg, p);
+
             var applyAfterPreflight = function () {
-                trackApply(post(cfg.ajaxAction, buildPayload(cfg, p), function (res) {
+                trackApply(post(ajaxAction, postPayload, function (res) {
                     if (res.success) {
                         recordApply(cfg.kind);
                         var aiMessage;

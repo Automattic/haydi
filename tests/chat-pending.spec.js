@@ -2,10 +2,10 @@
 /**
  * Issue #12 — UI integration test for the orphan tool_use scenario.
  *
- * Repro from the bug report: AI proposes a run_query, the user types a new
- * instruction instead of clicking Execute / Cancel, and the next chat request
- * 400s with "tool_use ids were found without tool_result blocks immediately
- * after".
+ * Repro from the bug report: AI proposes a run_query (an extension tool), the
+ * user types a new instruction instead of clicking Approve / Decline, and the
+ * next chat request 400s with "tool_use ids were found without tool_result
+ * blocks immediately after".
  *
  * The connector / AI provider is intercepted with route fulfillment so this
  * test does not require a live AI endpoint.
@@ -140,7 +140,7 @@ test.describe('Chat — pending proposal handling', () => {
         await setupPage(page);
 
         // Intercept the chat endpoint so we can drive the chat
-        // without an AI provider.  First call → returns a pending_query.
+        // without an AI provider.  First call → returns a pending_extension.
         // Second call → captures the messages array and ends the turn.
         let chatCalls   = 0;
         let secondMsgs  = null;
@@ -166,12 +166,15 @@ test.describe('Chat — pending proposal handling', () => {
                 return fulfillChat(route, action, {
                     text:     'I will list categories first.',
                     messages: echoed,
-                    pending_query: {
-                        tool_use_id: TOOL_USE_ID,
-                        tool_name:   'run_query',
-                        sql:         'SELECT 1',
-                        reason:      'inspect categories',
-                        pre_results: [],
+                    pending_extension: {
+                        tool_use_id:  TOOL_USE_ID,
+                        tool_name:    'run_query',
+                        label:        'Run SQL Query',
+                        ajax_action:  'haydi_execute_query',
+                        payload_keys: ['sql', 'reason'],
+                        sql:          'SELECT 1',
+                        reason:       'inspect categories',
+                        pre_results:  [],
                     },
                 });
             }
@@ -187,7 +190,7 @@ test.describe('Chat — pending proposal handling', () => {
         // First user message — triggers the proposal.
         await page.fill('#wpc-chat-input', 'install woocommerce please');
         await page.click('#wpc-btn-send');
-        await expect(page.locator('#wpc-query-section')).toBeVisible();
+        await expect(page.locator('#wpc-extension-section')).toBeVisible();
         await expect(page.locator('.wpc-panel--chat > #wpc-editor-panel + .wpc-chat-input-wrap')).toBeVisible();
 
         const proposalBox = await page.locator('#wpc-editor-panel').boundingBox();
@@ -204,7 +207,7 @@ test.describe('Chat — pending proposal handling', () => {
         await expect.poll(() => chatCalls, { timeout: 5_000 }).toBeGreaterThanOrEqual(2);
 
         // The proposal panel must be hidden — sendMessage clears it.
-        await expect(page.locator('#wpc-query-section')).toBeHidden();
+        await expect(page.locator('#wpc-extension-section')).toBeHidden();
 
         // The captured payload's last user message must carry a tool_result
         // matching the previous turn's tool_use id, and the new text.
@@ -262,12 +265,15 @@ test.describe('Chat — pending proposal handling', () => {
                     return fulfillChat(route, action, {
                         text:     '',
                         messages: echoed,
-                        pending_query: {
-                            tool_use_id: TOOL_USE_ID,
-                            tool_name:   'run_query',
-                            sql:         'SELECT 1',
-                            reason:      'r',
-                            pre_results: [],
+                        pending_extension: {
+                            tool_use_id:  TOOL_USE_ID,
+                            tool_name:    'run_query',
+                            label:        'Run SQL Query',
+                            ajax_action:  'haydi_execute_query',
+                            payload_keys: ['sql', 'reason'],
+                            sql:          'SELECT 1',
+                            reason:       'r',
+                            pre_results:  [],
                         },
                     });
                 }
@@ -297,11 +303,10 @@ test.describe('Chat — pending proposal handling', () => {
         // Trigger the proposal.
         await page.fill('#wpc-chat-input', 'do a query');
         await page.click('#wpc-btn-send');
-        await expect(page.locator('#wpc-query-section')).toBeVisible();
+        await expect(page.locator('#wpc-extension-section')).toBeVisible();
 
         // Approve — but the route holds the response, so the AJAX is mid-flight.
-        page.on('dialog', (d) => d.accept()); // execute_query asks confirm()
-        await page.click('#wpc-btn-execute-query');
+        await page.click('#wpc-btn-confirm-extension');
         await expect.poll(() => executeQueryHit).toBe(1);
 
         // While the approval is mid-flight, type a message and click Send.

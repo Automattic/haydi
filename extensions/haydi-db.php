@@ -1,0 +1,250 @@
+<?php
+/**
+ * Haydi DB Extension — run_query.
+ * Install: drop into wp-content/plugins/haydi/extensions/
+ */
+
+defined( 'ABSPATH' ) || exit;
+
+if ( ! function_exists( 'haydi_register_proposal' ) || ! class_exists( 'Haydi_Audit_Logger' ) ) {
+	return;
+}
+
+haydi_register_proposal(
+	'run_query',
+	array(
+		'label'            => 'Run SQL Query',
+		'fields'           => array( 'sql', 'reason' ),
+		'ajax_action'      => 'haydi_execute_query',
+		'log_action'       => 'query_proposed',
+		'log_path_field'   => '',
+		'tool_description' => 'run_query(sql, reason) — run a SQL query via wpdb; opens an approval UI for the user',
+	)
+);
+
+add_filter(
+	'haydi_greeting_capabilities',
+	static function ( array $caps ): array {
+		$caps[] = '🗄️ ' . __( 'Reviewing or updating site data via SQL', 'haydi' );
+		return $caps;
+	}
+);
+
+add_filter(
+	'haydi_greeting_footer',
+	static fn() => sprintf(
+		/* translators: %s: link to WordPress Studio */
+		__( 'For fast prototyping only — review AI output carefully. Consider <a href="%s" target="_blank" class="wpc-track-studio">WordPress Studio</a> for a more reliable solution.', 'haydi' ),
+		'https://developer.wordpress.com/studio/'
+	)
+);
+
+add_filter( 'haydi_greeting_question', static fn() => __( 'What would you like to work on today?', 'haydi' ) );
+add_filter( 'haydi_suggestion_hint', static fn() => __( 'Try one of these to see what I can do:', 'haydi' ) );
+
+add_filter(
+	'haydi_known_extensions',
+	static function ( array $exts ): array {
+		$exts[] = array(
+			'extension' => 'haydi-db.php',
+			'provides'  => 'run_query',
+		);
+		return $exts;
+	}
+);
+
+add_filter(
+	'haydi_agents_tool_groups',
+	static function ( array $groups ): array {
+		$groups['sql'] = '**SQL** — run queries via wpdb; SELECT/SHOW/DESCRIBE/EXPLAIN return rows, writes return affected-row count';
+		return $groups;
+	}
+);
+
+add_filter(
+	'haydi_agents_safety_rules',
+	static function ( array $rules ): array {
+		$rules[] = 'Never drop or truncate core WordPress tables via `haydi_run_query`.';
+		return $rules;
+	}
+);
+
+add_filter(
+	'haydi_tool_schemas',
+	static function ( array $schemas ): array {
+		$schemas['run_query'] = array(
+			'description' => 'Run a SQL query via $wpdb. Calling this tool opens an approval UI for the user; they will see the SQL and the reason and confirm before it executes. You must invoke this tool to trigger the approval — describing the query in plain text does nothing.',
+			'fields'      => array(
+				'sql'    => 'The SQL query to execute.',
+				'reason' => 'Human-readable explanation of what this query does and why.',
+			),
+		);
+		return $schemas;
+	}
+);
+
+( static function () {
+	$logger = new Haydi_Audit_Logger();
+	$health = new Haydi_Health_Check();
+
+	add_action(
+		'wp_ajax_haydi_execute_query',
+		static function () use ( $logger, $health ) {
+			if ( ! current_user_can( 'manage_options' ) ) {
+				wp_send_json_error( array( 'message' => 'Permission denied.' ), 403 );
+			}
+			if ( ! check_ajax_referer( 'haydi_nonce', 'nonce', false ) ) {
+				wp_send_json_error( array( 'message' => 'Invalid or expired nonce.' ), 403 );
+			}
+
+			// phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- nonce verified above; SQL is human-approved
+			$sql = isset( $_POST['sql'] ) ? wp_unslash( $_POST['sql'] ) : '';
+			// phpcs:ignore WordPress.Security.NonceVerification.Missing
+			$reason = isset( $_POST['reason'] ) ? sanitize_text_field( wp_unslash( $_POST['reason'] ) ) : '';
+
+			$result = haydi_db_ext_execute_query( $sql, $reason, $logger, $health );
+			if ( is_wp_error( $result ) ) {
+				wp_send_json_error( array( 'message' => $result->get_error_message() ) );
+				return;
+			}
+			wp_send_json_success( $result );
+		}
+	);
+
+	add_filter(
+		'haydi_mcp_tools',
+		static function ( array $tools ) {
+			return array_merge(
+				$tools,
+				array(
+					array(
+						'name'        => 'haydi_run_query',
+						'description' => 'Run a SQL query via wpdb. SELECT/SHOW/DESCRIBE/EXPLAIN return rows; other statements return affected-row count.',
+						'inputSchema' => array(
+							'type'       => 'object',
+							'properties' => array(
+								'sql'    => array(
+									'type'        => 'string',
+									'description' => 'SQL query to execute.',
+								),
+								'reason' => array(
+									'type'        => 'string',
+									'description' => 'Reason (shown in audit log).',
+								),
+							),
+							'required'   => array( 'sql' ),
+						),
+					),
+				)
+			);
+		}
+	);
+
+	add_filter(
+		'haydi_mcp_execute_tool',
+		static function ( $result, string $name, array $args ) use ( $logger, $health ) {
+			if ( null !== $result || 'haydi_run_query' !== $name ) {
+				return $result;
+			}
+			$r = haydi_db_ext_execute_query(
+				trim( (string) ( $args['sql'] ?? '' ) ),
+				(string) ( $args['reason'] ?? '' ),
+				$logger,
+				$health
+			);
+			if ( is_wp_error( $r ) ) {
+				return $r;
+			}
+			if ( 'select' === $r['type'] ) {
+				return wp_json_encode( $r['rows'], JSON_PRETTY_PRINT );
+			}
+			return $r['result'];
+		},
+		10,
+		3
+	);
+
+	add_action(
+		'rest_api_init',
+		static function () use ( $logger, $health ) {
+			register_rest_route(
+				'haydi/v1',
+				'/query',
+				array(
+					'methods'             => 'POST',
+					'callback'            => static function ( WP_REST_Request $r ) use ( $logger, $health ) {
+						$body   = $r->get_json_params();
+						$result = haydi_db_ext_execute_query(
+							trim( (string) ( $body['sql'] ?? '' ) ),
+							(string) ( $body['reason'] ?? '' ),
+							$logger,
+							$health
+						);
+						if ( is_wp_error( $result ) ) {
+							$data   = $result->get_error_data();
+							$status = is_array( $data ) && isset( $data['status'] ) ? (int) $data['status'] : 400;
+							return new WP_REST_Response( array( 'message' => $result->get_error_message() ), $status );
+						}
+						unset( $result['result'] );
+						return new WP_REST_Response( $result );
+					},
+					'permission_callback' => 'haydi_is_authorized_api_request',
+				)
+			);
+		}
+	);
+} )();
+
+function haydi_db_ext_execute_query( string $sql, string $reason, Haydi_Audit_Logger $logger, Haydi_Health_Check $health ): array|WP_Error {
+	if ( '' === trim( $sql ) ) {
+		return new WP_Error( 'missing_param', 'sql is required.', array( 'status' => 400 ) );
+	}
+
+	global $wpdb;
+	$first_word = strtoupper( strtok( trim( $sql ), " \t\n\r" ) );
+	$is_select  = in_array( $first_word, array( 'SELECT', 'SHOW', 'DESCRIBE', 'EXPLAIN' ), true );
+
+	$wpdb->show_errors();
+
+	if ( $is_select ) {
+		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, PluginCheck.Security.DirectDB.UnescapedDBParameter
+		$rows = $wpdb->get_results( $sql, ARRAY_A );
+		if ( $wpdb->last_error ) {
+			$logger->log( 'query_error', '', $wpdb->last_error );
+			return new WP_Error( 'query_error', 'Query error: ' . $wpdb->last_error, array( 'status' => 400 ) );
+		}
+		$truncated = false;
+		if ( count( $rows ) > 200 ) {
+			$rows      = array_slice( $rows, 0, 200 );
+			$truncated = true;
+		}
+		$logger->log( 'query_executed', '', $reason );
+		return array(
+			'type'      => 'select',
+			'rows'      => $rows,
+			'count'     => count( $rows ),
+			'truncated' => $truncated,
+			'result'    => wp_json_encode( $rows ),
+		);
+	}
+
+	// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, PluginCheck.Security.DirectDB.UnescapedDBParameter
+	$result = $wpdb->query( $sql );
+	if ( false === $result ) {
+		$error = $wpdb->last_error ? $wpdb->last_error : 'Query failed.';
+		$logger->log( 'query_error', '', $error );
+		return new WP_Error( 'query_error', 'Query error: ' . $error, array( 'status' => 400 ) );
+	}
+
+	$err = $health->verify_or_warn( 'SQL query' );
+	if ( $err ) {
+		return new WP_Error( $err->get_error_code(), $err->get_error_message(), array( 'status' => 500 ) );
+	}
+
+	$logger->log( 'query_executed', '', $reason );
+	return array(
+		'type'   => 'write',
+		'rows'   => $result,
+		'result' => is_int( $result ) ? "Query OK, {$result} row(s) affected." : 'Query executed successfully.',
+	);
+}

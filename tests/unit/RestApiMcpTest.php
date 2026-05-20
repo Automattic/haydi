@@ -53,9 +53,6 @@ class RestApiMcpTest extends TestCase {
 		$this->ref = new \ReflectionClass( Haydi_Rest_Api::class );
 		$this->api = $this->ref->newInstanceWithoutConstructor();
 
-		// Inject a real token manager (backed by the in-memory option store).
-		$this->injectProperty( 'token_manager', new Haydi_Api_Token_Manager() );
-
 		// Inject mock objects for the dependencies used by mcp_execute_tool().
 		$this->injectProperty( 'file_tool',   $this->buildMockFileTool() );
 		$this->injectProperty( 'plugin_tool', $this->buildMockPluginTool() );
@@ -220,7 +217,7 @@ class RestApiMcpTest extends TestCase {
 		$this->assertNotEmpty( $tools );
 
 		$names = array_column( $tools, 'name' );
-		foreach ( array( 'haydi_list_files', 'haydi_read_file', 'haydi_list_plugins', 'haydi_run_query', 'haydi_run_php' ) as $expected ) {
+		foreach ( array( 'haydi_list_files', 'haydi_read_file', 'haydi_list_plugins', 'haydi_list_posts', 'haydi_fetch_url' ) as $expected ) {
 			$this->assertContains( $expected, $names, "Tool '{$expected}' should be in tools/list response" );
 		}
 
@@ -267,9 +264,6 @@ class RestApiMcpTest extends TestCase {
 		$mgr   = new Haydi_Api_Token_Manager();
 		$token = $mgr->generate_token( 'perm-test' );
 
-		// Inject the same manager (shares the in-memory option store).
-		$this->injectProperty( 'token_manager', $mgr );
-
 		$req = new WP_REST_Request();
 		$req->set_header( 'Authorization', "Bearer {$token}" );
 
@@ -301,7 +295,6 @@ class RestApiMcpTest extends TestCase {
 	public function test_check_permission_falls_back_to_server_http_authorization(): void {
 		$mgr   = new Haydi_Api_Token_Manager();
 		$token = $mgr->generate_token( 'server-fallback' );
-		$this->injectProperty( 'token_manager', $mgr );
 
 		// Simulate Apache+FastCGI stripping the header from getallheaders() but
 		// still setting $_SERVER['HTTP_AUTHORIZATION'].
@@ -318,7 +311,6 @@ class RestApiMcpTest extends TestCase {
 	public function test_check_permission_falls_back_to_redirect_http_authorization(): void {
 		$mgr   = new Haydi_Api_Token_Manager();
 		$token = $mgr->generate_token( 'redirect-fallback' );
-		$this->injectProperty( 'token_manager', $mgr );
 
 		// Simulate Apache mod_rewrite renaming the header after a URL rewrite.
 		$_SERVER['REDIRECT_HTTP_AUTHORIZATION'] = "Bearer {$token}";

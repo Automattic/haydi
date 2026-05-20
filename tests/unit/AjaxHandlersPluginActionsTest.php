@@ -5,11 +5,9 @@
  *   Haydi_Plugin_Tool::handle_install_plugin
  *   Haydi_Plugin_Tool::handle_activate_plugin
  *   Haydi_Plugin_Tool::handle_deactivate_plugin
- *   Haydi_PHP_Tool::handle_run_php
+ *   haydi_php_ext_execute() (extensions/haydi-php.php)
  *
  * WordPress functions are stubbed via Brain\Monkey so no live WordPress is needed.
- * Handler public methods are tested by setting $_POST and observing the captured
- * wp_send_json_success / wp_send_json_error call.
  */
 
 use PHPUnit\Framework\TestCase;
@@ -19,9 +17,9 @@ use Brain\Monkey\Functions;
 class AjaxHandlersPluginActionsTest extends TestCase {
 
 	private \ReflectionClass $pluginRef;
-	private \ReflectionClass $phpRef;
 	private \Haydi_Plugin_Tool $pluginHandler;
-	private \Haydi_PHP_Tool $phpHandler;
+	private \Haydi_Health_Check $health;
+	private \Haydi_Audit_Logger $mockLogger;
 
 	/** Captured result of the last wp_send_json_success / wp_send_json_error call. */
 	private ?bool $lastSuccess = null;
@@ -62,24 +60,14 @@ class AjaxHandlersPluginActionsTest extends TestCase {
 		Functions\when( 'wp_remote_get' )->justReturn( array( 'body' => '{"success":true,"data":"ok"}' ) );
 		Functions\when( 'wp_remote_retrieve_body' )->justReturn( '{"success":true,"data":"ok"}' );
 
-		// Build each tool instance without invoking constructor side-effects
-		// (add_action calls). `logger` lives on the abstract base, so look up
-		// the property via the parent reflection.
+		// Build plugin tool without invoking constructor (add_action) side-effects.
 		$this->pluginRef     = new \ReflectionClass( Haydi_Plugin_Tool::class );
 		$this->pluginHandler = $this->pluginRef->newInstanceWithoutConstructor();
-		$this->phpRef        = new \ReflectionClass( Haydi_PHP_Tool::class );
-		$this->phpHandler    = $this->phpRef->newInstanceWithoutConstructor();
+		$this->mockLogger    = $this->createMock( Haydi_Audit_Logger::class );
+		$this->health        = new Haydi_Health_Check();
 
-		$mockLogger     = $this->createMock( Haydi_Audit_Logger::class );
-		$baseLoggerProp = $this->pluginRef->getParentClass()->getProperty( 'logger' );
-		$baseLoggerProp->setValue( $this->pluginHandler, $mockLogger );
-		$baseLoggerProp->setValue( $this->phpHandler, $mockLogger );
-
-		// Inject a real Health_Check on each tool — its loopback call uses the
-		// admin_url / wp_remote_get stubs above, so it returns "healthy" by default.
-		$health = new Haydi_Health_Check();
-		$this->pluginRef->getProperty( 'health' )->setValue( $this->pluginHandler, $health );
-		$this->phpRef->getProperty( 'health' )->setValue( $this->phpHandler, $health );
+		$this->pluginRef->getParentClass()->getProperty( 'logger' )->setValue( $this->pluginHandler, $this->mockLogger );
+		$this->pluginRef->getProperty( 'health' )->setValue( $this->pluginHandler, $this->health );
 
 		$_POST = array();
 	}
@@ -102,8 +90,25 @@ class AjaxHandlersPluginActionsTest extends TestCase {
 		try {
 			$handler->{$method}();
 		} catch ( \HaydiTestHaltException $e ) {
-			// Expected — wp_send_json_* halts execution in production via wp_die.
 			unset( $e );
+		}
+	}
+
+	/** Call haydi_php_ext_execute() directly and capture result. */
+	private function callPhp( string $code, string $reason = 'test' ): void {
+		$this->lastSuccess = null;
+		$this->lastData    = null;
+		$result            = haydi_php_ext_execute( $code, $reason, $this->mockLogger, $this->health );
+		if ( is_wp_error( $result ) ) {
+			$data              = $result->get_error_data();
+			$this->lastSuccess = false;
+			$this->lastData    = array(
+				'message' => $result->get_error_message(),
+				'output'  => is_array( $data ) ? ( $data['output'] ?? '' ) : '',
+			);
+		} else {
+			$this->lastSuccess = true;
+			$this->lastData    = $result;
 		}
 	}
 
@@ -181,37 +186,31 @@ class AjaxHandlersPluginActionsTest extends TestCase {
 	}
 
 	// =======================================================================
-	// handle_run_php
+	// haydi_php_ext_execute()
 	// =======================================================================
 
 	public function test_run_php_rejects_empty_code(): void {
-		$this->callHandler( $this->phpHandler, 'handle_run_php', array( 'code' => '', 'reason' => 'test' ) );
+		$this->callPhp( '' );
 
 		$this->assertFalse( $this->lastSuccess );
 		$this->assertStringContainsString( 'required', $this->lastData['message'] );
 	}
 
 	public function test_run_php_rejects_whitespace_only_code(): void {
-		$this->callHandler( $this->phpHandler, 'handle_run_php', array( 'code' => "   \n\t  ", 'reason' => 'test' ) );
+		$this->callPhp( "   \n\t  " );
 
 		$this->assertFalse( $this->lastSuccess );
 	}
 
 	public function test_run_php_captures_echo_output(): void {
-		$this->callHandler( $this->phpHandler, 'handle_run_php', array(
-			'code'   => "echo 'hello world';",
-			'reason' => 'test echo',
-		) );
+		$this->callPhp( "echo 'hello world';", 'test echo' );
 
 		$this->assertTrue( $this->lastSuccess );
 		$this->assertSame( 'hello world', $this->lastData['output'] );
 	}
 
 	public function test_run_php_captures_multi_line_output(): void {
-		$this->callHandler( $this->phpHandler, 'handle_run_php', array(
-			'code'   => "echo 'line1' . PHP_EOL . 'line2';",
-			'reason' => 'multi-line output',
-		) );
+		$this->callPhp( "echo 'line1' . PHP_EOL . 'line2';", 'multi-line output' );
 
 		$this->assertTrue( $this->lastSuccess );
 		$this->assertStringContainsString( 'line1', $this->lastData['output'] );
@@ -219,40 +218,28 @@ class AjaxHandlersPluginActionsTest extends TestCase {
 	}
 
 	public function test_run_php_returns_no_output_placeholder_for_silent_code(): void {
-		$this->callHandler( $this->phpHandler, 'handle_run_php', array(
-			'code'   => '$x = 1 + 1;',
-			'reason' => 'silent computation',
-		) );
+		$this->callPhp( '$x = 1 + 1;', 'silent computation' );
 
 		$this->assertTrue( $this->lastSuccess );
 		$this->assertSame( '(no output)', $this->lastData['output'] );
 	}
 
 	public function test_run_php_catches_thrown_exception_and_reports_error(): void {
-		$this->callHandler( $this->phpHandler, 'handle_run_php', array(
-			'code'   => "throw new \\RuntimeException('boom');",
-			'reason' => 'test exception',
-		) );
+		$this->callPhp( "throw new \\RuntimeException('boom');", 'test exception' );
 
 		$this->assertFalse( $this->lastSuccess );
 		$this->assertStringContainsString( 'boom', $this->lastData['message'] );
 	}
 
 	public function test_run_php_catches_error_class_and_reports_it(): void {
-		$this->callHandler( $this->phpHandler, 'handle_run_php', array(
-			'code'   => "throw new \\Error('fatal error');",
-			'reason' => 'test error class',
-		) );
+		$this->callPhp( "throw new \\Error('fatal error');", 'test error class' );
 
 		$this->assertFalse( $this->lastSuccess );
 		$this->assertStringContainsString( 'fatal error', $this->lastData['message'] );
 	}
 
 	public function test_run_php_captures_output_produced_before_exception(): void {
-		$this->callHandler( $this->phpHandler, 'handle_run_php', array(
-			'code'   => "echo 'before'; throw new \\RuntimeException('oops');",
-			'reason' => 'output before throw',
-		) );
+		$this->callPhp( "echo 'before'; throw new \\RuntimeException('oops');", 'output before throw' );
 
 		$this->assertFalse( $this->lastSuccess );
 		$this->assertSame( 'before', $this->lastData['output'] );

@@ -12,19 +12,28 @@ Your AI Autopilot — manage your site directly from WP-Admin using any AI provi
 
 == Description ==
 
-Haydi lets an AI agent manage your WordPress site from WP-Admin. Tell it what you want; it proposes file edits, plugin installs, database queries, and PHP snippets — each requiring your approval before anything changes.
+Haydi lets an AI agent manage your WordPress site from WP-Admin. Tell it what you want; it reads your site, proposes changes, and requires your approval before anything is modified.
 
-**What it can do:**
+**What it can do (core):**
 
-* Write and install plugins
-* Edit theme and plugin files (with a live diff before applying)
+* Browse, read, and search plugin and theme files
+* List posts, pages, users, and site options
+* Install, activate, and deactivate plugins
+* Fetch public web pages for reference (docs, examples)
+* Inspect your site setup and Jetpack stats
+
+**What it can do (with extensions):**
+
+* Edit, write, move, copy, and delete files — with a live diff before applying
 * Run database queries
 * Execute PHP snippets in the WordPress context
-* Create posts, update settings, and more
+* Restore files from automatic backups
+
+Extensions are single PHP files you drop into `wp-content/plugins/haydi/extensions/` via SFTP. No activation step needed. See the Extensions section below for details.
 
 **How it works:**
 
-Every destructive action — file writes, deletes, SQL queries, plugin installs — pauses for human approval. You see a full diff or preview before clicking Apply. Read-only operations (listing files, reading files, fetching URLs) run automatically.
+Read-only operations (listing files, reading files, fetching URLs, listing posts and users) run automatically. Every mutating action — plugin installs, and any write/delete/SQL/PHP operation from an extension — pauses for human approval. You see a full diff or preview before clicking Apply.
 
 Before any PHP file is written to disk, it is validated with `token_get_all()` to catch syntax errors. If the "Playground preflight" option is enabled, it is also tested inside a WordPress Playground sandbox first.
 
@@ -34,7 +43,14 @@ All operations are recorded in an audit log accessible from within the chat inte
 
 **Jetpack integration:** when Jetpack is connected, the AI receives site-specific context — stats, top posts, referrers, active modules, plan tier, speed scores, and security data — so suggestions are tailored to your site rather than generic.
 
-**Remote access via MCP:** generate an API token under Advanced settings in the Haydi sidebar and connect local AI tools (Claude Code, Codex, and any MCP-compatible client) directly to your site — no browser required. The built-in MCP endpoint (`/wp-json/haydi/v1/mcp`) speaks the Model Context Protocol over HTTP, exposing all Haydi tools so a local AI can list files, run queries, install plugins, and more.
+**Remote access via MCP:** generate an API token under Advanced settings in the Haydi sidebar and connect local AI tools (Claude Code, Codex, and any MCP-compatible client) directly to your site — no browser required. The built-in MCP endpoint (`/wp-json/haydi/v1/mcp`) speaks the Model Context Protocol over HTTP, exposing core read tools, plugin management, and any additional tools provided by installed extensions.
+
+**Extensions:** The core plugin focuses on read-only operations and plugin management. Power users can unlock file write/edit/delete, SQL execution, and PHP execution by installing extensions. Two options:
+
+1. **Individual extensions** — download the `.php` files you need directly from [github.com/Automattic/haydi/tree/trunk/extensions](https://github.com/Automattic/haydi/tree/trunk/extensions) and upload them to `wp-content/plugins/haydi/extensions/` via SFTP.
+2. **Full bundle** — download `haydi-full-extensions.zip` from the [releases page](https://github.com/Automattic/haydi/releases), then deactivate and delete the current plugin and re-upload the full zip via **Plugins → Add New → Upload Plugin**.
+
+No activation step is needed for individual extension files; the plugin auto-loads any `.php` file placed in the `extensions/` folder.
 
 **Command palette:** open Haydi from anywhere in WP-Admin with Cmd/Ctrl+K → "Interact with AI".
 
@@ -63,7 +79,7 @@ Yes. When you send a message, your prompt and relevant site context (file conten
 
 = Can the AI make changes without my approval? =
 
-By default, no. Every action that modifies your site — file writes, deletes, SQL queries, PHP execution, plugin installs — requires an explicit click to approve. Read-only operations run automatically.
+By default, no. Every action that modifies your site — plugin installs, and any write/delete/SQL/PHP operation provided by an extension — requires an explicit click to approve. Read-only operations (browsing files, listing posts and users, fetching URLs) run automatically.
 
 An **Auto-accept** toggle is available in the interface for users who want to let the AI apply a series of changes without pausing for each one. This setting is session-only and resets when the page is reloaded.
 
@@ -78,6 +94,14 @@ When using the MCP or REST API with a token, write operations execute immediatel
 5. Restart your AI tool — it will appear as an MCP server named `haydi`.
 
 Tokens can be revoked from the same card at any time.
+
+= How do I enable file editing, SQL queries, or PHP execution? =
+
+These capabilities require extensions. You have two options:
+
+**Option A — individual files (SFTP):** download the extension `.php` files you need from [github.com/Automattic/haydi/tree/trunk/extensions](https://github.com/Automattic/haydi/tree/trunk/extensions) and upload them to `wp-content/plugins/haydi/extensions/` via SFTP. The plugin auto-loads them immediately — no activation step needed.
+
+**Option B — full bundle (re-upload):** download `haydi-full-extensions.zip` from the [releases page](https://github.com/Automattic/haydi/releases), then deactivate and delete the current plugin installation and re-upload the full zip via **Plugins → Add New → Upload Plugin**. All three extensions (files, SQL, PHP) will be included.
 
 = What happens if a change breaks my site? =
 
