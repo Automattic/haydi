@@ -96,119 +96,25 @@ $tracks_enabled     = (bool) get_option( 'haydi_enable_tracks', false );
 				</span>
 			</div>
 			<div class="wpc-panel__body">
-				<!-- Proposed query (hidden until the AI proposes a run_query) -->
-				<div id="wpc-query-section" class="wpc-hidden">
+				<!-- Extension proposal (hidden until an extension action is proposed) -->
+				<div id="wpc-extension-section" class="wpc-hidden">
 					<div class="wpc-proposal-header">
-						<span class="dashicons dashicons-database"></span>
-						<strong><?php esc_html_e( 'Review database change', 'haydi' ); ?></strong>
+						<span class="dashicons dashicons-admin-tools"></span>
+						<strong id="wpc-extension-label"></strong>
 					</div>
-					<p id="wpc-query-reason" class="wpc-proposal-reason"></p>
+					<p id="wpc-extension-reason" class="wpc-proposal-reason"></p>
 					<details class="wpc-technical-details">
 						<summary><?php esc_html_e( 'Technical details', 'haydi' ); ?></summary>
-						<pre id="wpc-query-sql" class="wpc-diff wpc-diff--after" style="max-height:200px;"></pre>
+						<pre id="wpc-extension-payload" class="wpc-diff wpc-diff--after" style="max-height:200px;"></pre>
 					</details>
 					<div class="wpc-proposal-actions">
-						<button id="wpc-btn-execute-query" class="button button-primary">
-							<?php esc_html_e( 'Execute Query', 'haydi' ); ?>
+						<button id="wpc-btn-confirm-extension" class="button button-primary">
+							<?php esc_html_e( 'Approve', 'haydi' ); ?>
 						</button>
-						<button id="wpc-btn-cancel-query" class="button">
-							<?php esc_html_e( 'Cancel', 'haydi' ); ?>
+						<button id="wpc-btn-cancel-extension" class="button">
+							<?php esc_html_e( 'Decline', 'haydi' ); ?>
 						</button>
-						<span id="wpc-query-status" class="wpc-apply-status"></span>
-					</div>
-				</div>
-
-				<!-- Proposed file deletion (hidden until the AI proposes a delete) -->
-				<div id="wpc-delete-section" class="wpc-hidden">
-					<div class="wpc-proposal-header wpc-delete-header">
-						<span class="dashicons dashicons-trash"></span>
-						<strong><?php esc_html_e( 'Delete file', 'haydi' ); ?></strong>
-					</div>
-					<p id="wpc-delete-path" class="wpc-proposal-path"></p>
-					<p id="wpc-delete-reason" class="wpc-proposal-reason"></p>
-					<div class="wpc-proposal-actions">
-						<button id="wpc-btn-confirm-delete" class="button button-primary wpc-btn-danger">
-							<?php esc_html_e( 'Delete File', 'haydi' ); ?>
-						</button>
-						<button id="wpc-btn-cancel-delete" class="button">
-							<?php esc_html_e( 'Cancel', 'haydi' ); ?>
-						</button>
-						<span id="wpc-delete-status" class="wpc-apply-status"></span>
-					</div>
-				</div>
-
-				<!-- Proposed file move (hidden until the AI proposes a move) -->
-				<div id="wpc-move-section" class="wpc-hidden">
-					<div class="wpc-proposal-header">
-						<span class="dashicons dashicons-randomize"></span>
-						<strong><?php esc_html_e( 'Move file', 'haydi' ); ?></strong>
-					</div>
-					<p id="wpc-move-reason" class="wpc-proposal-reason"></p>
-					<div class="wpc-diff-wrap">
-						<div class="wpc-diff-col">
-							<p class="wpc-diff-label"><?php esc_html_e( 'From', 'haydi' ); ?></p>
-							<pre id="wpc-move-src" class="wpc-diff wpc-diff--before"></pre>
-						</div>
-						<div class="wpc-diff-col">
-							<p class="wpc-diff-label"><?php esc_html_e( 'To', 'haydi' ); ?></p>
-							<pre id="wpc-move-dest" class="wpc-diff wpc-diff--after"></pre>
-						</div>
-					</div>
-					<div class="wpc-proposal-actions">
-						<button id="wpc-btn-confirm-move" class="button button-primary">
-							<?php esc_html_e( 'Move File', 'haydi' ); ?>
-						</button>
-						<button id="wpc-btn-cancel-move" class="button">
-							<?php esc_html_e( 'Cancel', 'haydi' ); ?>
-						</button>
-						<span id="wpc-move-status" class="wpc-apply-status"></span>
-					</div>
-				</div>
-
-				<!-- Proposed file copy (hidden until the AI proposes a copy) -->
-				<div id="wpc-copy-section" class="wpc-hidden">
-					<div class="wpc-proposal-header">
-						<span class="dashicons dashicons-admin-page"></span>
-						<strong><?php esc_html_e( 'Copy file', 'haydi' ); ?></strong>
-					</div>
-					<p id="wpc-copy-reason" class="wpc-proposal-reason"></p>
-					<div class="wpc-diff-wrap">
-						<div class="wpc-diff-col">
-							<p class="wpc-diff-label"><?php esc_html_e( 'From', 'haydi' ); ?></p>
-							<pre id="wpc-copy-src" class="wpc-diff wpc-diff--before"></pre>
-						</div>
-						<div class="wpc-diff-col">
-							<p class="wpc-diff-label"><?php esc_html_e( 'To', 'haydi' ); ?></p>
-							<pre id="wpc-copy-dest" class="wpc-diff wpc-diff--after"></pre>
-						</div>
-					</div>
-					<div class="wpc-proposal-actions">
-						<button id="wpc-btn-confirm-copy" class="button button-primary">
-							<?php esc_html_e( 'Copy File', 'haydi' ); ?>
-						</button>
-						<button id="wpc-btn-cancel-copy" class="button">
-							<?php esc_html_e( 'Cancel', 'haydi' ); ?>
-						</button>
-						<span id="wpc-copy-status" class="wpc-apply-status"></span>
-					</div>
-				</div>
-
-				<!-- Proposed directory deletion (hidden until the AI proposes delete_dir) -->
-				<div id="wpc-rmdir-section" class="wpc-hidden">
-					<div class="wpc-proposal-header wpc-delete-header">
-						<span class="dashicons dashicons-trash"></span>
-						<strong><?php esc_html_e( 'Delete directory', 'haydi' ); ?></strong>
-					</div>
-					<p id="wpc-rmdir-path" class="wpc-proposal-path"></p>
-					<p id="wpc-rmdir-reason" class="wpc-proposal-reason"></p>
-					<div class="wpc-proposal-actions">
-						<button id="wpc-btn-confirm-rmdir" class="button button-primary wpc-btn-danger">
-							<?php esc_html_e( 'Delete Directory', 'haydi' ); ?>
-						</button>
-						<button id="wpc-btn-cancel-rmdir" class="button">
-							<?php esc_html_e( 'Cancel', 'haydi' ); ?>
-						</button>
-						<span id="wpc-rmdir-status" class="wpc-apply-status"></span>
+						<span id="wpc-extension-status" class="wpc-apply-status"></span>
 					</div>
 				</div>
 
@@ -269,73 +175,38 @@ $tracks_enabled     = (bool) get_option( 'haydi_enable_tracks', false );
 					</div>
 				</div>
 
-				<!-- Proposed PHP execution (hidden until the AI proposes run_php) -->
-				<div id="wpc-php-section" class="wpc-hidden">
-					<div class="wpc-proposal-header">
-						<span class="dashicons dashicons-editor-code"></span>
-						<strong><?php esc_html_e( 'Run PHP', 'haydi' ); ?></strong>
-					</div>
-					<p id="wpc-php-reason" class="wpc-proposal-reason"></p>
-					<pre id="wpc-php-code" class="wpc-diff wpc-diff--after" style="max-height:200px;"></pre>
-					<div class="wpc-proposal-actions">
-						<button id="wpc-btn-confirm-php" class="button button-primary">
-							<?php esc_html_e( 'Execute PHP', 'haydi' ); ?>
-						</button>
-						<button id="wpc-btn-cancel-php" class="button">
-							<?php esc_html_e( 'Cancel', 'haydi' ); ?>
-						</button>
-						<span id="wpc-php-status" class="wpc-apply-status"></span>
-					</div>
-				</div>
-
-				<!-- Proposed backup restore (hidden until the AI proposes restore_backup) -->
-				<div id="wpc-restore-section" class="wpc-hidden">
-					<div class="wpc-proposal-header">
-						<span class="dashicons dashicons-backup"></span>
-						<strong><?php esc_html_e( 'Restore from backup', 'haydi' ); ?></strong>
-					</div>
-					<p id="wpc-restore-path" class="wpc-proposal-path"></p>
-					<p id="wpc-restore-backup-info" class="wpc-proposal-reason"></p>
-					<p id="wpc-restore-reason" class="wpc-proposal-reason"></p>
-					<div class="wpc-proposal-actions">
-						<button id="wpc-btn-confirm-restore" class="button button-primary">
-							<?php esc_html_e( 'Restore', 'haydi' ); ?>
-						</button>
-						<button id="wpc-btn-cancel-restore" class="button">
-							<?php esc_html_e( 'Cancel', 'haydi' ); ?>
-						</button>
-						<span id="wpc-restore-status" class="wpc-apply-status"></span>
-					</div>
-				</div>
-
-				<!-- Proposed file change (hidden until the AI proposes a write) -->
-				<div id="wpc-proposal-section" class="wpc-hidden">
-					<div class="wpc-proposal-file-row">
-						<code id="wpc-proposal-filename" class="wpc-proposal-filename"></code>
-						<span id="wpc-proposal-badge" class="wpc-proposal-badge"><?php esc_html_e( 'File change', 'haydi' ); ?></span>
-					</div>
-					<p id="wpc-proposal-dir" class="wpc-proposal-dir"></p>
-					<p id="wpc-proposal-reason" class="wpc-proposal-reason"></p>
-
-					<pre id="wpc-diff-unified" class="wpc-diff-unified"></pre>
-
-					<div class="wpc-proposal-actions">
-						<button id="wpc-btn-apply" class="button button-primary">
-							<?php esc_html_e( 'Apply Change', 'haydi' ); ?>
-						</button>
-						<button id="wpc-btn-reject" class="button">
-							<?php esc_html_e( 'Reject', 'haydi' ); ?>
-						</button>
-						<span id="wpc-apply-status" class="wpc-apply-status"></span>
-					</div>
-				</div>
 			</div>
 		</div>
 
 		<!-- AI chat panel — full-screen by default. -->
+		<?php
+		$_capabilities = apply_filters(
+			'haydi_greeting_capabilities',
+			array(
+				'📂 ' . __( 'Browsing, reading, and searching plugin/theme files', 'haydi' ),
+				'🔌 ' . __( 'Installing, activating, or deactivating plugins', 'haydi' ),
+				'📋 ' . __( 'Listing posts, users, and site options', 'haydi' ),
+				'🌐 ' . __( 'Fetching public web pages for reference (docs, examples)', 'haydi' ),
+				'🔍 ' . __( 'Inspecting your site\'s setup', 'haydi' ),
+			)
+		);
+
+		$_items = implode( '', array_map( static fn( $c ) => '<li>' . esc_html( $c ) . '</li>', $_capabilities ) );
+
+		$_footer = apply_filters(
+			'haydi_greeting_footer',
+			sprintf(
+				/* translators: %s: link to GitHub releases */
+				__( 'Write, SQL, and PHP tools are available as extensions — ask me what\'s installed, or grab them from the <a href="%s" target="_blank">releases page</a>.', 'haydi' ),
+				'https://github.com/Automattic/haydi/releases'
+			)
+		);
+
+		$_question = apply_filters( 'haydi_greeting_question', __( 'What would you like to explore today?', 'haydi' ) );
+		?>
 		<div class="wpc-panel wpc-panel--chat">
 			<div class="wpc-chat-messages" id="wpc-chat-messages">
-				<div class="wpc-message wpc-message--assistant"><?php echo wp_kses_post( __( 'Howdy! 👋 I\'m your WordPress assistant. I can help you with things like:<ul><li>📂 Browsing, reading, editing, moving, or deleting plugin/theme files</li><li>🔌 Installing, activating, or deactivating plugins</li><li>🗄️ Reviewing or updating site data</li><li>⚙️ Executing PHP snippets in the WordPress context</li><li>🌐 Fetching public web pages for reference (docs, examples)</li><li>🔍 Inspecting your site\'s setup</li></ul>For fast prototyping only — review AI output carefully. Consider <a href="https://developer.wordpress.com/studio/" target="_blank" class="wpc-track-studio">WordPress Studio</a> for a more reliable solution.<br><br>What would you like to work on today?', 'haydi' ) ); ?></div>
+				<div class="wpc-message wpc-message--assistant"><?php echo wp_kses_post( __( 'Howdy! 👋 I\'m your WordPress assistant. I can help you with things like:', 'haydi' ) . '<ul>' . $_items . '</ul>' . $_footer . '<br><br>' . $_question ); ?></div>
 			</div>
 			<div id="wpc-auto-accept-warning" class="wpc-auto-accept-warning wpc-hidden">
 				<span class="dashicons dashicons-warning" aria-hidden="true"></span>

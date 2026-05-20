@@ -20,7 +20,7 @@ echo "Pushing tag $TAG..."
 git push origin "$TAG"
 
 echo "Creating GitHub release $TAG..."
-gh release create "$TAG" dist/haydi.zip \
+gh release create "$TAG" dist/haydi.zip dist/haydi-full-extensions.zip \
     --title "Haydi $VERSION" \
     --notes "Release $VERSION" \
     --latest

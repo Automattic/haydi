@@ -1,15 +1,13 @@
 <?php
 /**
- * Unit tests for Haydi_File_Tool::handle_apply_write() — specifically
- * the post-write health check and auto-rollback logic added to guard against
- * fatal PHP errors.
+ * Unit tests for haydi_files_ext_execute_write() — specifically
+ * the post-write health check and auto-rollback logic.
  *
  * Strategy
  * --------
- * - Use newInstanceWithoutConstructor() + reflection to inject a mock
- *   FilesystemGuard so write_file() / restore_latest_backup() are fully
- *   controlled without touching the real filesystem.
- * - Brain\Monkey stubs all WordPress functions (wp_remote_get, admin_url, …).
+ * - Call haydi_files_ext_execute_write() directly with a mock FilesystemGuard
+ *   and a real Haydi_Health_Check so the loopback path is exercised.
+ * - Brain\Monkey stubs the WP HTTP functions used by the health check.
  * - The real php -l check still runs for PHP files: valid PHP content is used
  *   in tests that need to reach the health-check code path.
  */
@@ -20,11 +18,10 @@ use Brain\Monkey\Functions;
 
 class AjaxHandlersApplyWriteTest extends TestCase {
 
-	private \ReflectionClass $ref;
-	private \Haydi_File_Tool $handler;
 	private \Haydi_Filesystem_Guard $mockGuard;
+	private \Haydi_Health_Check $health;
+	private \Haydi_Audit_Logger $mockLogger;
 
-	/** Captured outcome of the last wp_send_json_success / wp_send_json_error call. */
 	private ?bool $lastSuccess = null;
 	private mixed $lastData    = null;
 
@@ -35,61 +32,12 @@ class AjaxHandlersApplyWriteTest extends TestCase {
 		parent::setUp();
 		Monkey\setUp();
 
-		// Auth
-		Functions\when( 'current_user_can' )->justReturn( true );
-		Functions\when( 'check_ajax_referer' )->justReturn( 1 );
-
-		// Input helpers
-		Functions\when( 'sanitize_text_field' )->returnArg();
-		Functions\when( 'wp_unslash' )->returnArg();
-
-		// php -l support: wp_tempnam creates a real temp file; wp_delete_file removes it.
-		Functions\when( 'wp_tempnam' )->alias( function ( $prefix ) {
-			return tempnam( sys_get_temp_dir(), $prefix );
-		} );
-		// wp_delete_file must be stubbed via Patchwork (not in bootstrap) so it is
-		// patchable; defining it as a plain function before Patchwork loads breaks mocking.
-		Functions\when( 'wp_delete_file' )->alias( 'unlink' );
-
-		// Capture JSON responses and halt — production wp_die()s after sending.
-		Functions\when( 'wp_send_json_success' )->alias( function ( $data = null ) {
-			$this->lastSuccess = true;
-			$this->lastData    = $data;
-			throw new \HaydiTestHaltException();
-		} );
-		Functions\when( 'wp_send_json_error' )->alias( function ( $data = null ) {
-			$this->lastSuccess = false;
-			$this->lastData    = $data;
-			throw new \HaydiTestHaltException();
-		} );
-
-		// Build handler without triggering constructor add_action() calls.
-		$this->ref     = new \ReflectionClass( Haydi_File_Tool::class );
-		$this->handler = $this->ref->newInstanceWithoutConstructor();
-
-		// Inject mock guard.
-		$this->mockGuard = $this->createMock( Haydi_Filesystem_Guard::class );
-		$this->ref->getProperty( 'guard' )->setValue( $this->handler, $this->mockGuard );
-
-		// Inject a real Health_Check — its loopback HTTP call goes through
-		// wp_remote_get / admin_url, which Brain\Monkey stubs per-test.
-		$this->ref->getProperty( 'health' )->setValue(
-			$this->handler,
-			new Haydi_Health_Check()
-		);
-
-		// Inject mock logger (log() calls are no-ops). `logger` is declared on
-		// the abstract base, so look it up via the parent reflection.
-		$this->ref->getParentClass()->getProperty( 'logger' )->setValue(
-			$this->handler,
-			$this->createMock( Haydi_Audit_Logger::class )
-		);
-
-		$_POST = array();
+		$this->mockGuard  = $this->createMock( Haydi_Filesystem_Guard::class );
+		$this->mockLogger = $this->createMock( Haydi_Audit_Logger::class );
+		$this->health     = new Haydi_Health_Check();
 	}
 
 	protected function tearDown(): void {
-		$_POST = array();
 		Monkey\tearDown();
 		parent::tearDown();
 	}
@@ -98,18 +46,27 @@ class AjaxHandlersApplyWriteTest extends TestCase {
 	// Helper
 	// -----------------------------------------------------------------------
 
-	private function callApplyWrite( array $post ): void {
+	private function callApplyWrite( array $args ): void {
 		$this->lastSuccess = null;
 		$this->lastData    = null;
-		$_POST             = array_merge( $post, array( 'nonce' => 'test' ) );
-		try {
-			$this->handler->handle_apply_write();
-		} catch ( \HaydiTestHaltException $e ) {
-			unset( $e );
+		$result            = haydi_files_ext_execute_write(
+			$args['path'] ?? '',
+			$args['content'] ?? '',
+			'',
+			$this->mockGuard,
+			$this->health,
+			$this->mockLogger
+		);
+		if ( is_wp_error( $result ) ) {
+			$this->lastSuccess = false;
+			$this->lastData    = array( 'message' => $result->get_error_message() );
+		} else {
+			$this->lastSuccess = true;
+			$this->lastData    = $result;
 		}
 	}
 
-	/** Returns a Brain\Monkey stub for a healthy health-check response. */
+	/** Stubs the health-check loopback to return a healthy response. */
 	private function stubHealthyResponse(): void {
 		Functions\when( 'admin_url' )->justReturn( 'http://example.com/wp-admin/admin-ajax.php' );
 		Functions\when( 'get_transient' )->justReturn( 'http://127.0.0.1/wp-admin/admin-ajax.php?action=haydi_health' );
@@ -199,7 +156,6 @@ class AjaxHandlersApplyWriteTest extends TestCase {
 	// -----------------------------------------------------------------------
 
 	public function test_rolls_back_and_errors_when_response_body_is_empty(): void {
-		// Simulates exit() / die() cutting output before wp_send_json_success fires.
 		$this->mockGuard->method( 'write_file' )->willReturn( '/plugin/my-plugin.php' );
 		$this->mockGuard->expects( $this->once() )->method( 'restore_latest_backup' )->willReturn( true );
 		$this->stubUnhealthyResponse( '' );
@@ -214,7 +170,6 @@ class AjaxHandlersApplyWriteTest extends TestCase {
 	}
 
 	public function test_rolls_back_and_errors_when_response_body_lacks_success_token(): void {
-		// Simulates a WordPress 500 error page (has body, but not our token).
 		$this->mockGuard->method( 'write_file' )->willReturn( '/plugin/my-plugin.php' );
 		$this->mockGuard->expects( $this->once() )->method( 'restore_latest_backup' )->willReturn( true );
 		$this->stubUnhealthyResponse( '<html><body>There has been a critical error.</body></html>' );
@@ -229,8 +184,6 @@ class AjaxHandlersApplyWriteTest extends TestCase {
 	}
 
 	public function test_skips_rollback_when_wp_remote_get_itself_fails(): void {
-		// Simulates a connection timeout or loopback blocked.
-		// Unreachable loopback is treated as "can't tell" — the write is kept.
 		$this->mockGuard->method( 'write_file' )->willReturn( '/plugin/my-plugin.php' );
 		$this->mockGuard->expects( $this->never() )->method( 'restore_latest_backup' );
 

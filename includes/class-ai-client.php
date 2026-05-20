@@ -777,65 +777,6 @@ class Haydi_AI_Client {
 				'url' => 'Fully-qualified public HTTP or HTTPS URL to fetch.',
 			),
 		),
-		'run_query'         => array(
-			'description' => 'Run a SQL query via $wpdb. Calling this tool opens an approval UI for the user; they will see the SQL and the reason and confirm before it executes. You must invoke this tool to trigger the approval — describing the query in plain text does nothing.',
-			'fields'      => array(
-				'sql'    => 'The SQL query to execute.',
-				'reason' => 'Human-readable explanation of what this query does and why.',
-			),
-		),
-		'write_file'        => array(
-			'description' => 'Write new content to a file within an allowed root. Calling this tool opens an approval UI for the user; they will see the diff and the reason and confirm before it is written. Include the complete file content, not a diff. Only one write per turn is accepted. You must invoke this tool to trigger the approval — describing the change in plain text does nothing.',
-			'fields'      => array(
-				'path'    => 'Absolute filesystem path of the file to write.',
-				'content' => 'Complete new file content (full replacement, not a diff).',
-				'reason'  => 'Human-readable explanation of what this change does and why.',
-			),
-		),
-		'edit'              => array(
-			'description' => 'Modify an existing file by exact string replacement. Calling this tool opens an approval UI for the user; they will see the diff and confirm before it is written. Prefer this for small edits to existing files. oldString must be copied exactly from the current file and should match once unless replaceAll is true.',
-			'fields'      => array(
-				'filePath'   => 'Absolute filesystem path of the existing file to edit.',
-				'oldString'  => 'Exact text currently in the file. Preserve indentation, whitespace, and newlines exactly.',
-				'newString'  => 'Replacement text. Use an empty string to delete oldString.',
-				'replaceAll' => array(
-					'type'        => 'boolean',
-					'description' => 'Whether to replace every occurrence of oldString. Defaults to false.',
-					'required'    => false,
-				),
-				'reason'     => 'Human-readable explanation of what this edit does and why.',
-			),
-		),
-		'delete_file'       => array(
-			'description' => 'Delete a file within an allowed root. Calling this tool opens an approval UI for the user; they confirm before deletion. A backup is created automatically. You must invoke this tool to trigger the approval — describing the deletion in plain text does nothing.',
-			'fields'      => array(
-				'path'   => 'Absolute filesystem path of the file to delete.',
-				'reason' => 'Human-readable explanation of why this file should be deleted.',
-			),
-		),
-		'move_file'         => array(
-			'description' => 'Move or rename a file within the allowed roots. Calling this tool opens an approval UI for the user; they confirm before the move. A backup of the source is created automatically. You must invoke this tool to trigger the approval — describing the move in plain text does nothing.',
-			'fields'      => array(
-				'src'    => 'Absolute filesystem path of the source file.',
-				'dest'   => 'Absolute filesystem path of the destination.',
-				'reason' => 'Human-readable explanation of why this file is being moved.',
-			),
-		),
-		'copy_file'         => array(
-			'description' => 'Copy a file within the allowed roots. Calling this tool opens an approval UI for the user; they confirm before the copy. The destination is backed up if it already exists. You must invoke this tool to trigger the approval — describing the copy in plain text does nothing.',
-			'fields'      => array(
-				'src'    => 'Absolute filesystem path of the source file.',
-				'dest'   => 'Absolute filesystem path of the destination.',
-				'reason' => 'Human-readable explanation of why this file is being copied.',
-			),
-		),
-		'delete_dir'        => array(
-			'description' => 'Recursively delete a directory and all its contents. Calling this tool opens an approval UI for the user; they confirm before deletion. All files are backed up automatically. Root directories cannot be deleted. You must invoke this tool to trigger the approval — describing the deletion in plain text does nothing.',
-			'fields'      => array(
-				'path'   => 'Absolute filesystem path of the directory to delete.',
-				'reason' => 'Human-readable explanation of why this directory should be deleted.',
-			),
-		),
 		'list_plugins'      => array(
 			'description' => 'List all installed WordPress plugins with their activation status, version, and plugin file path. Use this to discover what is installed before installing or activating anything.',
 			'fields'      => array(),
@@ -861,13 +802,6 @@ class Haydi_AI_Client {
 				'reason' => 'Human-readable explanation of why this plugin is being deactivated.',
 			),
 		),
-		'run_php'           => array(
-			'description' => 'Execute a PHP code snippet in the WordPress context. Calling this tool opens an approval UI for the user; they see the code and the reason and confirm before execution. Output is captured and returned. Use for tasks that cannot be done via SQL or file writes alone (creating posts/pages, calling WP APIs, etc.). You must invoke this tool to trigger the approval — describing the snippet in plain text does nothing.',
-			'fields'      => array(
-				'code'   => 'PHP code to execute (without an opening <?php tag).',
-				'reason' => 'Human-readable explanation of what this code does and why.',
-			),
-		),
 		'list_backups'      => array(
 			'description' => 'List available backup files created by this plugin. Always call this tool when the user asks about backups or wants to restore a file — never assume or guess what backups exist. Returns backup_file names (needed for restore_backup), original filenames, and timestamps.',
 			'fields'      => array(
@@ -878,13 +812,54 @@ class Haydi_AI_Client {
 				),
 			),
 		),
-		'restore_backup'    => array(
-			'description' => 'Restore a file from a specific backup. Calling this tool opens an approval UI for the user; they confirm before the restore happens. Use list_backups first to find the correct backup_file name. A new backup of the current file is created before restoring so the restore is itself reversible.',
+		'list_posts'        => array(
+			'description' => 'List WordPress posts and pages with their content, ID, title, status, type, modified date. Defaults to 50 most recently modified of any status across posts and pages.',
 			'fields'      => array(
-				'backup_file'   => 'The backup filename (e.g. functions.php.1746960123.abc123.bak) as returned by list_backups.',
-				'original_path' => 'Absolute filesystem path where the file should be restored.',
-				'reason'        => 'Human-readable explanation of why this backup is being restored.',
+				'status' => array(
+					'type'        => 'string',
+					'description' => 'Post status filter (publish, draft, any, etc.). Defaults to any.',
+					'required'    => false,
+				),
+				'type'   => array(
+					'type'        => 'string',
+					'description' => 'Post type filter (post, page, etc.). Defaults to post and page.',
+					'required'    => false,
+				),
+				'limit'  => array(
+					'type'        => 'string',
+					'description' => 'Maximum results to return (1-200). Defaults to 50.',
+					'required'    => false,
+				),
 			),
+		),
+		'list_users'        => array(
+			'description' => 'List WordPress users with their ID, login, email, display name, and roles. Defaults to 50 most recently registered.',
+			'fields'      => array(
+				'role'  => array(
+					'type'        => 'string',
+					'description' => 'Role filter (administrator, editor, etc.). Leave empty for all roles.',
+					'required'    => false,
+				),
+				'limit' => array(
+					'type'        => 'string',
+					'description' => 'Maximum results to return (1-200). Defaults to 50.',
+					'required'    => false,
+				),
+			),
+		),
+		'list_options'      => array(
+			'description' => 'List WordPress site options. Without a search term returns autoloaded options; with a search term filters option_name by substring. Capped at 100 rows.',
+			'fields'      => array(
+				'search' => array(
+					'type'        => 'string',
+					'description' => 'Substring to filter option_name by. Leave empty to list autoloaded options.',
+					'required'    => false,
+				),
+			),
+		),
+		'list_extensions'   => array(
+			'description' => 'List known Haydi extensions and whether each one is currently installed. Call this when a user asks about write, SQL, or PHP capabilities, or when you need to explain why a requested tool is unavailable.',
+			'fields'      => array(),
 		),
 	);
 
@@ -894,7 +869,7 @@ class Haydi_AI_Client {
 	 */
 	private function get_function_declarations(): array {
 		$declarations = array();
-		foreach ( self::TOOL_SCHEMAS as $name => $spec ) {
+		foreach ( apply_filters( 'haydi_tool_schemas', self::TOOL_SCHEMAS ) as $name => $spec ) {
 			$properties = array();
 			$required   = array();
 			foreach ( $spec['fields'] as $field => $field_spec ) {

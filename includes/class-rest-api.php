@@ -19,18 +19,12 @@ class Haydi_Rest_Api {
 
 	const NAMESPACE = 'haydi/v1';
 
-	/** @var Haydi_Api_Token_Manager API token manager. */
-	private Haydi_Api_Token_Manager $token_manager;
 	/** @var Haydi_Filesystem_Guard Filesystem access guard. */
 	private Haydi_Filesystem_Guard $guard;
 	/** @var Haydi_File_Tool File-ops tool. */
 	private Haydi_File_Tool $file_tool;
 	/** @var Haydi_Plugin_Tool Plugin-ops tool. */
 	private Haydi_Plugin_Tool $plugin_tool;
-	/** @var Haydi_Query_Tool SQL query tool. */
-	private Haydi_Query_Tool $query_tool;
-	/** @var Haydi_PHP_Tool PHP execution tool. */
-	private Haydi_PHP_Tool $php_tool;
 	/** @var Haydi_Fetch_Url_Tool URL fetch tool. */
 	private Haydi_Fetch_Url_Tool $url_tool;
 	/** @var Haydi_Audit_Logger Audit logger. */
@@ -39,15 +33,12 @@ class Haydi_Rest_Api {
 	private Haydi_Health_Check $health;
 
 	public function __construct() {
-		$this->token_manager = new Haydi_Api_Token_Manager();
-		$this->logger        = new Haydi_Audit_Logger();
-		$this->guard         = new Haydi_Filesystem_Guard();
-		$this->health        = new Haydi_Health_Check();
-		$this->file_tool     = new Haydi_File_Tool( $this->logger, $this->guard, $this->health );
-		$this->plugin_tool   = new Haydi_Plugin_Tool( $this->logger, $this->health );
-		$this->query_tool    = new Haydi_Query_Tool( $this->logger, $this->health );
-		$this->php_tool      = new Haydi_PHP_Tool( $this->logger, $this->health );
-		$this->url_tool      = new Haydi_Fetch_Url_Tool( $this->logger );
+		$this->logger      = new Haydi_Audit_Logger();
+		$this->guard       = new Haydi_Filesystem_Guard();
+		$this->health      = new Haydi_Health_Check();
+		$this->file_tool   = new Haydi_File_Tool( $this->logger, $this->guard );
+		$this->plugin_tool = new Haydi_Plugin_Tool( $this->logger, $this->health );
+		$this->url_tool    = new Haydi_Fetch_Url_Tool( $this->logger );
 
 		add_action( 'rest_api_init', array( $this, 'register_routes' ) );
 	}
@@ -94,70 +85,13 @@ class Haydi_Rest_Api {
 			)
 		);
 
-		// File write/mutate.
-		register_rest_route(
-			self::NAMESPACE,
-			'/files/restore',
-			array(
-				'methods'             => 'POST',
-				'callback'            => array( $this, 'handle_restore_backup' ),
-				'permission_callback' => $perm,
-			)
-		);
-		register_rest_route(
-			self::NAMESPACE,
-			'/files/move',
-			array(
-				'methods'             => 'POST',
-				'callback'            => array( $this, 'handle_move_file' ),
-				'permission_callback' => $perm,
-			)
-		);
-		register_rest_route(
-			self::NAMESPACE,
-			'/files/copy',
-			array(
-				'methods'             => 'POST',
-				'callback'            => array( $this, 'handle_copy_file' ),
-				'permission_callback' => $perm,
-			)
-		);
-
-		// Single file CRUD.
+		// Single file read.
 		register_rest_route(
 			self::NAMESPACE,
 			'/file',
 			array(
-				array(
-					'methods'             => 'GET',
-					'callback'            => array( $this, 'handle_read_file' ),
-					'permission_callback' => $perm,
-				),
-				array(
-					'methods'             => 'POST',
-					'callback'            => array( $this, 'handle_write_file' ),
-					'permission_callback' => $perm,
-				),
-				array(
-					'methods'             => 'PATCH',
-					'callback'            => array( $this, 'handle_edit_file' ),
-					'permission_callback' => $perm,
-				),
-				array(
-					'methods'             => 'DELETE',
-					'callback'            => array( $this, 'handle_delete_file' ),
-					'permission_callback' => $perm,
-				),
-			)
-		);
-
-		// Directory.
-		register_rest_route(
-			self::NAMESPACE,
-			'/directory',
-			array(
-				'methods'             => 'DELETE',
-				'callback'            => array( $this, 'handle_delete_dir' ),
+				'methods'             => 'GET',
+				'callback'            => array( $this, 'handle_read_file' ),
 				'permission_callback' => $perm,
 			)
 		);
@@ -200,25 +134,7 @@ class Haydi_Rest_Api {
 			)
 		);
 
-		// SQL + PHP + URL.
-		register_rest_route(
-			self::NAMESPACE,
-			'/query',
-			array(
-				'methods'             => 'POST',
-				'callback'            => array( $this, 'handle_run_query' ),
-				'permission_callback' => $perm,
-			)
-		);
-		register_rest_route(
-			self::NAMESPACE,
-			'/php',
-			array(
-				'methods'             => 'POST',
-				'callback'            => array( $this, 'handle_run_php' ),
-				'permission_callback' => $perm,
-			)
-		);
+		// URL fetch.
 		register_rest_route(
 			self::NAMESPACE,
 			'/fetch',
@@ -249,30 +165,7 @@ class Haydi_Rest_Api {
 	 * Verify Bearer token or active WordPress session with manage_options capability.
 	 */
 	public function check_permission( WP_REST_Request $request ): bool {
-		$auth = $request->get_header( 'Authorization' );
-
-		// In Apache + FastCGI/PHP-FPM environments the Authorization header is
-		// often stripped from the FastCGI environment. Fall back to the $_SERVER
-		// variables that Apache may still populate, mirroring the approach used
-		// by WordPress core for Application Passwords.
-		if ( ! $auth ) {
-			if ( ! empty( $_SERVER['HTTP_AUTHORIZATION'] ) ) {
-				$auth = $_SERVER['HTTP_AUTHORIZATION']; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
-			} elseif ( ! empty( $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ) ) {
-				$auth = $_SERVER['REDIRECT_HTTP_AUTHORIZATION']; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
-			} elseif ( function_exists( 'apache_request_headers' ) ) {
-				$headers = apache_request_headers();
-				$auth    = $headers['Authorization'] ?? $headers['authorization'] ?? '';
-			}
-		}
-
-		if ( $auth && str_starts_with( $auth, 'Bearer ' ) ) {
-			$token = trim( substr( $auth, 7 ) );
-			if ( $this->token_manager->validate_token( $token ) ) {
-				return true;
-			}
-		}
-		return current_user_can( 'manage_options' );
+		return haydi_is_authorized_api_request( $request );
 	}
 
 	// -------------------------------------------------------------------------
@@ -353,118 +246,6 @@ class Haydi_Rest_Api {
 	}
 
 	// -------------------------------------------------------------------------
-	// File write
-	// -------------------------------------------------------------------------
-
-	/**
-	 * Create or overwrite a file inside an allowed root.
-	 */
-	public function handle_write_file( WP_REST_Request $request ): WP_REST_Response {
-		$body   = $request->get_json_params();
-		$result = $this->file_tool->execute_write(
-			(string) ( $body['path'] ?? '' ),
-			(string) ( $body['content'] ?? '' ),
-			(string) ( $body['reason'] ?? '' )
-		);
-		if ( is_wp_error( $result ) ) {
-			$data   = $result->get_error_data();
-			$status = is_array( $data ) && isset( $data['status'] ) ? (int) $data['status'] : 400;
-			return new WP_REST_Response( array( 'message' => $result->get_error_message() ), $status );
-		}
-		return new WP_REST_Response( $result );
-	}
-
-	public function handle_edit_file( WP_REST_Request $request ): WP_REST_Response {
-		$body   = $request->get_json_params();
-		$result = $this->file_tool->execute_edit(
-			(string) ( $body['path'] ?? '' ),
-			(string) ( $body['old_string'] ?? '' ),
-			(string) ( $body['new_string'] ?? '' ),
-			(bool) ( $body['replace_all'] ?? false ),
-			(string) ( $body['reason'] ?? '' )
-		);
-		if ( is_wp_error( $result ) ) {
-			$data   = $result->get_error_data();
-			$status = is_array( $data ) && isset( $data['status'] ) ? (int) $data['status'] : 400;
-			return new WP_REST_Response( array( 'message' => $result->get_error_message() ), $status );
-		}
-		return new WP_REST_Response( $result );
-	}
-
-	public function handle_delete_file( WP_REST_Request $request ): WP_REST_Response {
-		$reason = (string) ( $request->get_param( 'reason' ) ?? '' );
-		$result = $this->file_tool->execute_delete(
-			(string) ( $request->get_param( 'path' ) ?? '' ),
-			'' !== $reason ? $reason : 'API-initiated deletion.'
-		);
-		if ( is_wp_error( $result ) ) {
-			$data   = $result->get_error_data();
-			$status = is_array( $data ) && isset( $data['status'] ) ? (int) $data['status'] : 400;
-			return new WP_REST_Response( array( 'message' => $result->get_error_message() ), $status );
-		}
-		return new WP_REST_Response( $result );
-	}
-
-	public function handle_move_file( WP_REST_Request $request ): WP_REST_Response {
-		$body   = $request->get_json_params();
-		$result = $this->file_tool->execute_move(
-			(string) ( $body['src'] ?? '' ),
-			(string) ( $body['dest'] ?? '' ),
-			(string) ( $body['reason'] ?? '' )
-		);
-		if ( is_wp_error( $result ) ) {
-			$data   = $result->get_error_data();
-			$status = is_array( $data ) && isset( $data['status'] ) ? (int) $data['status'] : 400;
-			return new WP_REST_Response( array( 'message' => $result->get_error_message() ), $status );
-		}
-		return new WP_REST_Response( $result );
-	}
-
-	public function handle_copy_file( WP_REST_Request $request ): WP_REST_Response {
-		$body   = $request->get_json_params();
-		$result = $this->file_tool->execute_copy(
-			(string) ( $body['src'] ?? '' ),
-			(string) ( $body['dest'] ?? '' ),
-			(string) ( $body['reason'] ?? '' )
-		);
-		if ( is_wp_error( $result ) ) {
-			$data   = $result->get_error_data();
-			$status = is_array( $data ) && isset( $data['status'] ) ? (int) $data['status'] : 400;
-			return new WP_REST_Response( array( 'message' => $result->get_error_message() ), $status );
-		}
-		return new WP_REST_Response( $result );
-	}
-
-	public function handle_delete_dir( WP_REST_Request $request ): WP_REST_Response {
-		$reason = (string) ( $request->get_param( 'reason' ) ?? '' );
-		$result = $this->file_tool->execute_delete_dir(
-			(string) ( $request->get_param( 'path' ) ?? '' ),
-			'' !== $reason ? $reason : 'API-initiated directory deletion.'
-		);
-		if ( is_wp_error( $result ) ) {
-			$data   = $result->get_error_data();
-			$status = is_array( $data ) && isset( $data['status'] ) ? (int) $data['status'] : 400;
-			return new WP_REST_Response( array( 'message' => $result->get_error_message() ), $status );
-		}
-		return new WP_REST_Response( $result );
-	}
-
-	public function handle_restore_backup( WP_REST_Request $request ): WP_REST_Response {
-		$body   = $request->get_json_params();
-		$result = $this->file_tool->execute_restore_backup(
-			(string) ( $body['backup_file'] ?? '' ),
-			(string) ( $body['original_path'] ?? '' ),
-			(string) ( $body['reason'] ?? '' )
-		);
-		if ( is_wp_error( $result ) ) {
-			$data   = $result->get_error_data();
-			$status = is_array( $data ) && isset( $data['status'] ) ? (int) $data['status'] : 400;
-			return new WP_REST_Response( array( 'message' => $result->get_error_message() ), $status );
-		}
-		return new WP_REST_Response( $result );
-	}
-
-	// -------------------------------------------------------------------------
 	// Plugins
 	// -------------------------------------------------------------------------
 
@@ -519,49 +300,15 @@ class Haydi_Rest_Api {
 	}
 
 	// -------------------------------------------------------------------------
-	// SQL / PHP / URL
+	// URL
 	// -------------------------------------------------------------------------
 
 	/**
-	 * Execute a SQL query via wpdb. SELECT returns rows; other statements return row count.
+	 * Fetch a public URL and return its text content.
+	 *
+	 * @param WP_REST_Request $request REST request.
+	 * @return WP_REST_Response
 	 */
-	public function handle_run_query( WP_REST_Request $request ): WP_REST_Response {
-		$body   = $request->get_json_params();
-		$result = $this->query_tool->execute_query(
-			trim( (string) ( $body['sql'] ?? '' ) ),
-			(string) ( $body['reason'] ?? '' )
-		);
-		if ( is_wp_error( $result ) ) {
-			$data   = $result->get_error_data();
-			$status = is_array( $data ) && isset( $data['status'] ) ? (int) $data['status'] : 400;
-			return new WP_REST_Response( array( 'message' => $result->get_error_message() ), $status );
-		}
-		// REST API omits the raw 'result' string from the select payload — only rows/count/truncated.
-		unset( $result['result'] );
-		return new WP_REST_Response( $result );
-	}
-
-	public function handle_run_php( WP_REST_Request $request ): WP_REST_Response {
-		$body   = $request->get_json_params();
-		$result = $this->php_tool->execute_php(
-			trim( (string) ( $body['code'] ?? '' ) ),
-			(string) ( $body['reason'] ?? '' )
-		);
-		if ( is_wp_error( $result ) ) {
-			$data   = $result->get_error_data();
-			$status = is_array( $data ) && isset( $data['status'] ) ? (int) $data['status'] : 400;
-			$output = is_array( $data ) && isset( $data['output'] ) ? $data['output'] : '';
-			return new WP_REST_Response(
-				array(
-					'message' => $result->get_error_message(),
-					'output'  => $output,
-				),
-				$status
-			);
-		}
-		return new WP_REST_Response( $result );
-	}
-
 	public function handle_fetch_url( WP_REST_Request $request ): WP_REST_Response {
 		$body = $request->get_json_params();
 		$url  = (string) ( $body['url'] ?? '' );
@@ -683,8 +430,6 @@ class Haydi_Rest_Api {
 				if ( 'haydi://agents' !== $uri ) {
 					return $this->mcp_error( $id, -32602, 'Unknown resource URI' );
 				}
-				$agents_file = plugin_dir_path( __DIR__ ) . 'AGENTS.md';
-				$contents    = file_exists( $agents_file ) ? file_get_contents( $agents_file ) : ''; // phpcs:ignore WordPress.WP.AlternativeFunctions
 				return $this->mcp_ok(
 					$id,
 					array(
@@ -692,7 +437,7 @@ class Haydi_Rest_Api {
 							array(
 								'uri'      => 'haydi://agents',
 								'mimeType' => 'text/markdown',
-								'text'     => $contents,
+								'text'     => $this->build_agents_content(),
 							),
 						),
 					)
@@ -701,6 +446,76 @@ class Haydi_Rest_Api {
 			default:
 				return $this->mcp_error( $id, -32601, 'Method not found' );
 		}
+	}
+
+	/**
+	 * Build the haydi://agents resource content dynamically based on which
+	 * extensions are currently loaded, so MCP clients only see tools that exist.
+	 */
+	private function build_agents_content(): string {
+		// Tool groups — keyed so extensions can replace core entries (e.g. upgrade
+		// 'file' from read-only to read+write) or add new ones.
+		$tool_groups = apply_filters(
+			'haydi_agents_tool_groups',
+			array(
+				'file'    => '**File ops** — read and search (install haydi-files.php to enable writes)',
+				'content' => '**Content** — list posts, list users, list options',
+				'plugins' => '**Plugins** — list, install (from wordpress.org by slug), activate, deactivate',
+				'url'     => '**URL** — fetch public HTTP/HTTPS URLs; private/internal addresses are blocked',
+			)
+		);
+		$groups      = array_map( static fn( $g ) => '- ' . $g, array_values( $tool_groups ) );
+
+		// Safety rules — extensions append their own; auto-numbered by position.
+		$rule_texts = apply_filters(
+			'haydi_agents_safety_rules',
+			array(
+				'Call `haydi_get_allowed_roots` before writing files to confirm a valid target path.',
+				'Always supply a `reason` field on mutating calls — it appears in the audit log.',
+			)
+		);
+		$rules      = array_map(
+			static fn( $i, $r ) => ( $i + 1 ) . '. ' . $r,
+			array_keys( array_values( $rule_texts ) ),
+			array_values( $rule_texts )
+		);
+
+		// Workflows — extensions append complete workflow blocks (plain strings).
+		$workflow_blocks = apply_filters(
+			'haydi_agents_workflows',
+			array(
+				implode(
+					"\n",
+					array(
+						'**Install and activate a plugin**',
+						'1. `haydi_install_plugin` (provide slug, e.g. `"woocommerce"`)',
+						'2. `haydi_list_plugins` — find the plugin file path in the results',
+						'3. `haydi_activate_plugin` (provide that file path)',
+					)
+				),
+			)
+		);
+
+		return implode(
+			"\n",
+			array(
+				'# Haydi — AI Agent Instructions',
+				'',
+				'You are connected to a WordPress site via the Haydi MCP server.',
+				'',
+				'## Available tool groups',
+				'',
+				implode( "\n", $groups ),
+				'',
+				'## Safety rules — follow these in order',
+				'',
+				implode( "\n", $rules ),
+				'',
+				'## Common workflows',
+				'',
+				implode( "\n\n", $workflow_blocks ),
+			)
+		);
 	}
 
 	private function mcp_ok( mixed $id, mixed $result ): WP_REST_Response {
@@ -729,8 +544,6 @@ class Haydi_Rest_Api {
 
 	private function mcp_tool_definitions(): array {
 		$can_mod_plugins = wp_is_file_mod_allowed( 'plugin_files' );
-		$can_mod_themes  = wp_is_file_mod_allowed( 'theme_files' );
-		$can_mod_files   = $can_mod_plugins || $can_mod_themes;
 
 		$tools = array(
 			// File — read.
@@ -807,165 +620,62 @@ class Haydi_Rest_Api {
 			),
 			array(
 				'name'        => 'haydi_get_allowed_roots',
-				'description' => 'Return the list of absolute directory paths that Haydi is allowed to read from and write to. Call this before writing files to choose a valid target path.',
+				'description' => 'Return the list of absolute directory paths that Haydi is allowed to read from and write to.',
 				'inputSchema' => array(
 					'type'       => 'object',
 					'properties' => new \stdClass(),
 				),
 			),
-			// File — write.
+			// Content.
 			array(
-				'name'        => 'haydi_write_file',
-				'description' => 'Create or overwrite a file inside the allowed roots. PHP syntax is validated before writing.',
+				'name'        => 'haydi_list_posts',
+				'description' => 'List WordPress posts/pages with ID, title, status, type, date, and content.',
 				'inputSchema' => array(
 					'type'       => 'object',
 					'properties' => array(
-						'path'    => array(
+						'status' => array(
 							'type'        => 'string',
-							'description' => 'Absolute path to write to.',
+							'description' => 'Post status filter (optional, default: any).',
 						),
-						'content' => array(
+						'type'   => array(
 							'type'        => 'string',
-							'description' => 'Complete file contents.',
+							'description' => 'Post type filter (optional, default: post,page).',
 						),
-						'reason'  => array(
-							'type'        => 'string',
-							'description' => 'Reason (shown in audit log).',
+						'limit'  => array(
+							'type'        => 'number',
+							'description' => 'Maximum number to return (optional, default: 50, max: 200).',
 						),
 					),
-					'required'   => array( 'path', 'content' ),
 				),
 			),
 			array(
-				'name'        => 'haydi_edit_file',
-				'description' => 'Exact-string substitution in an existing file. old_string must match current content exactly.',
+				'name'        => 'haydi_list_users',
+				'description' => 'List WordPress users with ID, login, email, display_name, and roles.',
 				'inputSchema' => array(
 					'type'       => 'object',
 					'properties' => array(
-						'path'        => array(
+						'role'  => array(
 							'type'        => 'string',
-							'description' => 'Absolute path to the file.',
+							'description' => 'Role filter (optional).',
 						),
-						'old_string'  => array(
-							'type'        => 'string',
-							'description' => 'Exact string to replace.',
-						),
-						'new_string'  => array(
-							'type'        => 'string',
-							'description' => 'Replacement string.',
-						),
-						'replace_all' => array(
-							'type'        => 'boolean',
-							'description' => 'Replace all occurrences (default: false).',
-						),
-						'reason'      => array(
-							'type'        => 'string',
-							'description' => 'Reason (shown in audit log).',
+						'limit' => array(
+							'type'        => 'number',
+							'description' => 'Maximum number to return (optional, default: 50, max: 200).',
 						),
 					),
-					'required'   => array( 'path', 'old_string', 'new_string' ),
 				),
 			),
 			array(
-				'name'        => 'haydi_delete_file',
-				'description' => 'Delete a file from the allowed roots. A backup is created automatically.',
+				'name'        => 'haydi_list_options',
+				'description' => 'List WordPress options. Without search returns autoloaded options; with search filters by option_name substring.',
 				'inputSchema' => array(
 					'type'       => 'object',
 					'properties' => array(
-						'path'   => array(
+						'search' => array(
 							'type'        => 'string',
-							'description' => 'Absolute path to the file.',
-						),
-						'reason' => array(
-							'type'        => 'string',
-							'description' => 'Reason (shown in audit log).',
+							'description' => 'Substring to filter option_name (optional).',
 						),
 					),
-					'required'   => array( 'path' ),
-				),
-			),
-			array(
-				'name'        => 'haydi_move_file',
-				'description' => 'Move or rename a file inside the allowed roots.',
-				'inputSchema' => array(
-					'type'       => 'object',
-					'properties' => array(
-						'src'    => array(
-							'type'        => 'string',
-							'description' => 'Source path.',
-						),
-						'dest'   => array(
-							'type'        => 'string',
-							'description' => 'Destination path.',
-						),
-						'reason' => array(
-							'type'        => 'string',
-							'description' => 'Reason (shown in audit log).',
-						),
-					),
-					'required'   => array( 'src', 'dest' ),
-				),
-			),
-			array(
-				'name'        => 'haydi_copy_file',
-				'description' => 'Copy a file inside the allowed roots.',
-				'inputSchema' => array(
-					'type'       => 'object',
-					'properties' => array(
-						'src'    => array(
-							'type'        => 'string',
-							'description' => 'Source path.',
-						),
-						'dest'   => array(
-							'type'        => 'string',
-							'description' => 'Destination path.',
-						),
-						'reason' => array(
-							'type'        => 'string',
-							'description' => 'Reason (shown in audit log).',
-						),
-					),
-					'required'   => array( 'src', 'dest' ),
-				),
-			),
-			array(
-				'name'        => 'haydi_delete_directory',
-				'description' => 'Recursively delete a directory inside the allowed roots. All files are backed up first.',
-				'inputSchema' => array(
-					'type'       => 'object',
-					'properties' => array(
-						'path'   => array(
-							'type'        => 'string',
-							'description' => 'Absolute path to the directory.',
-						),
-						'reason' => array(
-							'type'        => 'string',
-							'description' => 'Reason (shown in audit log).',
-						),
-					),
-					'required'   => array( 'path' ),
-				),
-			),
-			array(
-				'name'        => 'haydi_restore_backup',
-				'description' => 'Restore a file from a Haydi backup. Call haydi_list_backups first to get the backup_file name.',
-				'inputSchema' => array(
-					'type'       => 'object',
-					'properties' => array(
-						'backup_file'   => array(
-							'type'        => 'string',
-							'description' => 'Backup file name from haydi_list_backups.',
-						),
-						'original_path' => array(
-							'type'        => 'string',
-							'description' => 'Original file path to restore to.',
-						),
-						'reason'        => array(
-							'type'        => 'string',
-							'description' => 'Reason (shown in audit log).',
-						),
-					),
-					'required'   => array( 'backup_file', 'original_path' ),
 				),
 			),
 			// Plugins.
@@ -1031,43 +741,7 @@ class Haydi_Rest_Api {
 					'required'   => array( 'plugin' ),
 				),
 			),
-			// SQL / PHP / URL.
-			array(
-				'name'        => 'haydi_run_query',
-				'description' => 'Run a SQL query via wpdb. SELECT/SHOW/DESCRIBE/EXPLAIN return rows; other statements return affected-row count.',
-				'inputSchema' => array(
-					'type'       => 'object',
-					'properties' => array(
-						'sql'    => array(
-							'type'        => 'string',
-							'description' => 'SQL query to execute.',
-						),
-						'reason' => array(
-							'type'        => 'string',
-							'description' => 'Reason (shown in audit log).',
-						),
-					),
-					'required'   => array( 'sql' ),
-				),
-			),
-			array(
-				'name'        => 'haydi_run_php',
-				'description' => 'Execute a PHP snippet in the WordPress context. Output is captured and returned.',
-				'inputSchema' => array(
-					'type'       => 'object',
-					'properties' => array(
-						'code'   => array(
-							'type'        => 'string',
-							'description' => 'PHP code to execute (no opening <?php tag).',
-						),
-						'reason' => array(
-							'type'        => 'string',
-							'description' => 'Reason (shown in audit log).',
-						),
-					),
-					'required'   => array( 'code' ),
-				),
-			),
+			// URL.
 			array(
 				'name'        => 'haydi_fetch_url',
 				'description' => 'Fetch a public HTTP/HTTPS URL and return its text content. Private/internal addresses are blocked.',
@@ -1082,26 +756,22 @@ class Haydi_Rest_Api {
 					'required'   => array( 'url' ),
 				),
 			),
+			// Extensions.
+			array(
+				'name'        => 'haydi_list_extensions',
+				'description' => 'List known Haydi extensions and whether each one is currently installed.',
+				'inputSchema' => array(
+					'type'       => 'object',
+					'properties' => new \stdClass(),
+				),
+			),
 		);
-
-		if ( ! $can_mod_files ) {
-			$write_tool_names = array(
-				'haydi_write_file',
-				'haydi_edit_file',
-				'haydi_delete_file',
-				'haydi_move_file',
-				'haydi_copy_file',
-				'haydi_delete_directory',
-				'haydi_restore_backup',
-			);
-			$tools            = array_values( array_filter( $tools, fn( $t ) => ! in_array( $t['name'], $write_tool_names, true ) ) );
-		}
 
 		if ( ! $can_mod_plugins ) {
 			$tools = array_values( array_filter( $tools, fn( $t ) => 'haydi_install_plugin' !== $t['name'] ) );
 		}
 
-		return $tools;
+		return apply_filters( 'haydi_mcp_tools', $tools );
 	}
 
 	/**
@@ -1109,7 +779,6 @@ class Haydi_Rest_Api {
 	 */
 	private function mcp_execute_tool( string $name, array $args ): string|WP_Error {
 		switch ( $name ) {
-			// Read tools — existing *_for_ai() helpers return strings already.
 			case 'haydi_get_allowed_roots':
 				return wp_json_encode( array_values( $this->guard->get_allowed_roots() ), JSON_PRETTY_PRINT );
 			case 'haydi_list_files':
@@ -1130,122 +799,112 @@ class Haydi_Rest_Api {
 				return $this->plugin_tool->list_plugins_for_ai();
 			case 'haydi_fetch_url':
 				return $this->url_tool->fetch_for_ai( (string) ( $args['url'] ?? '' ) );
-
-			// Write tools — inline the guard calls and return a summary string.
-			case 'haydi_write_file':
-				return $this->mcp_do_write_file( $args );
-			case 'haydi_edit_file':
-				return $this->mcp_do_edit_file( $args );
-			case 'haydi_delete_file':
-				return $this->mcp_do_delete_file( $args );
-			case 'haydi_move_file':
-				return $this->mcp_do_move_file( $args );
-			case 'haydi_copy_file':
-				return $this->mcp_do_copy_file( $args );
-			case 'haydi_delete_directory':
-				return $this->mcp_do_delete_dir( $args );
-			case 'haydi_restore_backup':
-				return $this->mcp_do_restore_backup( $args );
+			case 'haydi_list_posts':
+				return $this->mcp_do_list_posts( $args );
+			case 'haydi_list_users':
+				return $this->mcp_do_list_users( $args );
+			case 'haydi_list_options':
+				return $this->mcp_do_list_options( $args );
+			case 'haydi_list_extensions':
+				return $this->mcp_do_list_extensions();
 			case 'haydi_install_plugin':
 				return $this->mcp_do_install_plugin( $args );
 			case 'haydi_activate_plugin':
 				return $this->mcp_do_activate_plugin( $args );
 			case 'haydi_deactivate_plugin':
 				return $this->mcp_do_deactivate_plugin( $args );
-			case 'haydi_run_query':
-				return $this->mcp_do_run_query( $args );
-			case 'haydi_run_php':
-				return $this->mcp_do_run_php( $args );
-
 			default:
+				$filtered = apply_filters( 'haydi_mcp_execute_tool', null, $name, $args );
+				if ( null !== $filtered ) {
+					return $filtered;
+				}
 				return new WP_Error( 'unknown_tool', "Unknown tool: {$name}" );
 		}
 	}
 
-	private function mcp_do_write_file( array $args ): string|WP_Error {
-		$result = $this->file_tool->execute_write(
-			(string) ( $args['path'] ?? '' ),
-			(string) ( $args['content'] ?? '' ),
-			(string) ( $args['reason'] ?? '' )
-		);
-		if ( is_wp_error( $result ) ) {
-			return $result;
-		}
-		return "File written successfully: {$result['path']}";
+	private function mcp_do_list_extensions(): string {
+		$this->logger->log( 'list_extensions', '' );
+		return wp_json_encode( apply_filters( 'haydi_known_extensions', array() ), JSON_PRETTY_PRINT );
 	}
 
-	private function mcp_do_edit_file( array $args ): string|WP_Error {
-		$result = $this->file_tool->execute_edit(
-			(string) ( $args['path'] ?? '' ),
-			(string) ( $args['old_string'] ?? '' ),
-			(string) ( $args['new_string'] ?? '' ),
-			(bool) ( $args['replace_all'] ?? false ),
-			(string) ( $args['reason'] ?? '' )
+	private function mcp_do_list_posts( array $args ): string {
+		$status = (string) ( $args['status'] ?? '' );
+		$type   = (string) ( $args['type'] ?? '' );
+		$limit  = (string) ( $args['limit'] ?? '' );
+		$query  = array(
+			'post_status'    => '' !== $status ? sanitize_text_field( $status ) : 'any',
+			'post_type'      => '' !== $type ? sanitize_text_field( $type ) : array( 'post', 'page' ),
+			'posts_per_page' => '' !== $limit ? min( 200, (int) $limit ) : 50,
+			'orderby'        => 'modified',
+			'order'          => 'DESC',
 		);
-		if ( is_wp_error( $result ) ) {
-			return $result;
+		$posts  = get_posts( $query );
+		$rows   = array();
+		foreach ( $posts as $post ) {
+			$rows[] = array(
+				'ID'      => $post->ID,
+				'title'   => $post->post_title,
+				'status'  => $post->post_status,
+				'type'    => $post->post_type,
+				'date'    => $post->post_date,
+				'content' => $post->post_content,
+			);
 		}
-		return "File edited successfully ({$result['matches']} match(es)): {$result['path']}";
+		$this->logger->log( 'list_posts', '' );
+		return wp_json_encode( $rows, JSON_PRETTY_PRINT );
 	}
 
-	private function mcp_do_delete_file( array $args ): string|WP_Error {
-		$reason = (string) ( $args['reason'] ?? '' );
-		$result = $this->file_tool->execute_delete(
-			(string) ( $args['path'] ?? '' ),
-			'' !== $reason ? $reason : 'MCP-initiated deletion.'
+	private function mcp_do_list_users( array $args ): string {
+		$role  = (string) ( $args['role'] ?? '' );
+		$limit = (string) ( $args['limit'] ?? '' );
+		$query = array(
+			'number'  => '' !== $limit ? min( 200, (int) $limit ) : 50,
+			'orderby' => 'user_registered',
+			'order'   => 'DESC',
 		);
-		if ( is_wp_error( $result ) ) {
-			return $result;
+		if ( '' !== $role ) {
+			$query['role'] = sanitize_text_field( $role );
 		}
-		return "File deleted successfully: {$result['path']}";
+		$users = get_users( $query );
+		$rows  = array();
+		foreach ( $users as $user ) {
+			$rows[] = array(
+				'ID'           => $user->ID,
+				'login'        => $user->user_login,
+				'email'        => $user->user_email,
+				'display_name' => $user->display_name,
+				'roles'        => $user->roles,
+			);
+		}
+		$this->logger->log( 'list_users', '' );
+		return wp_json_encode( $rows, JSON_PRETTY_PRINT );
 	}
 
-	private function mcp_do_move_file( array $args ): string|WP_Error {
-		$result = $this->file_tool->execute_move(
-			(string) ( $args['src'] ?? '' ),
-			(string) ( $args['dest'] ?? '' ),
-			(string) ( $args['reason'] ?? '' )
-		);
-		if ( is_wp_error( $result ) ) {
-			return $result;
+	private function mcp_do_list_options( array $args ): string {
+		global $wpdb;
+		$search = (string) ( $args['search'] ?? '' );
+		if ( '' !== $search ) {
+			$like = $wpdb->esc_like( sanitize_text_field( $search ) );
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			$rows = $wpdb->get_results(
+				$wpdb->prepare( "SELECT option_name, option_value, autoload FROM {$wpdb->options} WHERE option_name LIKE %s LIMIT 100", '%' . $like . '%' ),
+				ARRAY_A
+			);
+		} else {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			$rows = $wpdb->get_results(
+				"SELECT option_name, option_value, autoload FROM {$wpdb->options} WHERE autoload = 'yes' ORDER BY option_name LIMIT 100",
+				ARRAY_A
+			);
 		}
-		return "File moved successfully: {$result['src']} → {$result['dest']}";
-	}
-
-	private function mcp_do_copy_file( array $args ): string|WP_Error {
-		$result = $this->file_tool->execute_copy(
-			(string) ( $args['src'] ?? '' ),
-			(string) ( $args['dest'] ?? '' ),
-			(string) ( $args['reason'] ?? '' )
-		);
-		if ( is_wp_error( $result ) ) {
-			return $result;
+		foreach ( $rows as &$row ) {
+			if ( strlen( $row['option_value'] ) > 500 ) {
+				$row['option_value'] = substr( $row['option_value'], 0, 500 ) . '...(truncated)';
+			}
 		}
-		return "File copied successfully: {$result['src']} → {$result['dest']}";
-	}
-
-	private function mcp_do_delete_dir( array $args ): string|WP_Error {
-		$reason = (string) ( $args['reason'] ?? '' );
-		$result = $this->file_tool->execute_delete_dir(
-			(string) ( $args['path'] ?? '' ),
-			'' !== $reason ? $reason : 'MCP-initiated directory deletion.'
-		);
-		if ( is_wp_error( $result ) ) {
-			return $result;
-		}
-		return "Directory deleted successfully: {$result['path']}";
-	}
-
-	private function mcp_do_restore_backup( array $args ): string|WP_Error {
-		$result = $this->file_tool->execute_restore_backup(
-			(string) ( $args['backup_file'] ?? '' ),
-			(string) ( $args['original_path'] ?? '' ),
-			(string) ( $args['reason'] ?? '' )
-		);
-		if ( is_wp_error( $result ) ) {
-			return $result;
-		}
-		return "Backup restored successfully: {$result['backup_file']} → {$result['original_path']}";
+		unset( $row );
+		$this->logger->log( 'list_options', '', $search );
+		return wp_json_encode( $rows, JSON_PRETTY_PRINT );
 	}
 
 	private function mcp_do_install_plugin( array $args ): string|WP_Error {
@@ -1279,33 +938,5 @@ class Haydi_Rest_Api {
 			return $result;
 		}
 		return "Plugin '{$result['plugin']}' deactivated successfully.";
-	}
-
-	private function mcp_do_run_query( array $args ): string|WP_Error {
-		$result = $this->query_tool->execute_query(
-			trim( (string) ( $args['sql'] ?? '' ) ),
-			(string) ( $args['reason'] ?? '' )
-		);
-		if ( is_wp_error( $result ) ) {
-			return $result;
-		}
-		if ( 'select' === $result['type'] ) {
-			return wp_json_encode( $result['rows'], JSON_PRETTY_PRINT );
-		}
-		return $result['result'];
-	}
-
-	private function mcp_do_run_php( array $args ): string|WP_Error {
-		$result = $this->php_tool->execute_php(
-			trim( (string) ( $args['code'] ?? '' ) ),
-			(string) ( $args['reason'] ?? '' )
-		);
-		if ( is_wp_error( $result ) ) {
-			$data   = $result->get_error_data();
-			$output = is_array( $data ) && isset( $data['output'] ) ? $data['output'] : '';
-			$msg    = $result->get_error_message();
-			return new WP_Error( $result->get_error_code(), $msg . ( '' !== $output ? "\nOutput: {$output}" : '' ) );
-		}
-		return $result['output'];
 	}
 }

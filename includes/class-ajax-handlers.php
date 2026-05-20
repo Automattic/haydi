@@ -9,8 +9,8 @@
  *    and inline by handle_chat / handle_save_settings / handle_clear_log
  *    / handle_dismiss_jetpack_notice on this class).
  *  - All filesystem paths are re-validated by Haydi_Filesystem_Guard.
- *  - Approval-gated tools (write_file, run_query, run_php, …) are NEVER
- *    executed automatically; the loop pauses and surfaces a "pending_*"
+ *  - Extension-provided approval tools (file writes, SQL, PHP, …) are NEVER
+ *    executed automatically; the loop pauses and surfaces a "pending_extension"
  *    payload that the human must explicitly approve.
  *  - The agentic loop runs server-side so list_files / read_file / fetch_url
  *    / list_plugins results flow back to the AI without a browser round-trip.
@@ -31,51 +31,9 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 	 *   - fields:          tool-input keys to copy verbatim into the payload.
 	 *   - log_action:      audit-log verb to record.
 	 *   - log_path_field:  which field to record as the audit-log "path" column;
-	 *                      empty string = log no path (run_query, run_php).
+	 *                      empty string = log no path.
 	 */
 	const APPROVAL_TOOLS = array(
-		'write_file'        => array(
-			'response_key'   => 'pending_write',
-			'fields'         => array( 'path', 'content', 'reason' ),
-			'log_action'     => 'write_proposed',
-			'log_path_field' => 'path',
-		),
-		'edit'              => array(
-			'response_key'   => 'pending_edit',
-			'fields'         => array( 'filePath', 'oldString', 'newString', 'replaceAll', 'reason' ),
-			'log_action'     => 'edit_proposed',
-			'log_path_field' => 'filePath',
-		),
-		'delete_file'       => array(
-			'response_key'   => 'pending_delete',
-			'fields'         => array( 'path', 'reason' ),
-			'log_action'     => 'delete_proposed',
-			'log_path_field' => 'path',
-		),
-		'move_file'         => array(
-			'response_key'   => 'pending_move',
-			'fields'         => array( 'src', 'dest', 'reason' ),
-			'log_action'     => 'move_proposed',
-			'log_path_field' => 'src',
-		),
-		'copy_file'         => array(
-			'response_key'   => 'pending_copy',
-			'fields'         => array( 'src', 'dest', 'reason' ),
-			'log_action'     => 'copy_proposed',
-			'log_path_field' => 'src',
-		),
-		'delete_dir'        => array(
-			'response_key'   => 'pending_rmdir',
-			'fields'         => array( 'path', 'reason' ),
-			'log_action'     => 'rmdir_proposed',
-			'log_path_field' => 'path',
-		),
-		'run_query'         => array(
-			'response_key'   => 'pending_query',
-			'fields'         => array( 'sql', 'reason' ),
-			'log_action'     => 'query_proposed',
-			'log_path_field' => '',
-		),
 		'install_plugin'    => array(
 			'response_key'   => 'pending_install',
 			'fields'         => array( 'slug', 'reason' ),
@@ -93,18 +51,6 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 			'fields'         => array( 'plugin', 'reason' ),
 			'log_action'     => 'deactivate_proposed',
 			'log_path_field' => 'plugin',
-		),
-		'run_php'           => array(
-			'response_key'   => 'pending_php',
-			'fields'         => array( 'code', 'reason' ),
-			'log_action'     => 'php_proposed',
-			'log_path_field' => '',
-		),
-		'restore_backup'    => array(
-			'response_key'   => 'pending_restore',
-			'fields'         => array( 'backup_file', 'original_path', 'reason' ),
-			'log_action'     => 'restore_proposed',
-			'log_path_field' => 'original_path',
 		),
 	);
 
@@ -133,17 +79,13 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 		// own AJAX hooks. Centralising registration here would force this class
 		// to know every tool's hook name; delegating it keeps each tool a
 		// self-contained unit.
-		$this->file_tool   = new Haydi_File_Tool( $this->logger, $this->guard, $health );
+		$this->file_tool   = new Haydi_File_Tool( $this->logger, $this->guard );
 		$this->plugin_tool = new Haydi_Plugin_Tool( $this->logger, $health );
 		$this->url_tool    = new Haydi_Fetch_Url_Tool( $this->logger );
-		$query_tool        = new Haydi_Query_Tool( $this->logger, $health );
-		$php_tool          = new Haydi_PHP_Tool( $this->logger, $health );
 		$chat_store        = new Haydi_Chat_Store( $this->logger, $this->client );
 
 		$this->file_tool->register();
 		$this->plugin_tool->register();
-		$query_tool->register();
-		$php_tool->register();
 		$chat_store->register();
 		$this->register();
 	}
@@ -191,8 +133,8 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 	 * Run the AI agentic loop server-side.
 	 *
 	 * Read tools (list_files / read_file / fetch_url / list_plugins) execute
-	 * automatically. Approval tools (write_file, run_query, …) stop the loop
-	 * and surface a pending_* payload for human approval.
+	 * automatically. Extension-provided approval tools stop the loop
+	 * and surface a pending_extension payload for human approval.
 	 */
 	public function handle_chat(): void {
 		$this->verify();
@@ -372,7 +314,10 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 				$tool_id   = $block['id'] ?? '';
 				$input     = $block['input'] ?? array();
 
-				$proposal_spec = self::APPROVAL_TOOLS[ $tool_name ] ?? null;
+				$core_proposals  = self::APPROVAL_TOOLS;
+				$ext_proposals   = haydi_get_proposals();
+				$proposal_spec   = $core_proposals[ $tool_name ] ?? $ext_proposals[ $tool_name ] ?? null;
+				$is_ext_proposal = null !== $proposal_spec && ! isset( $core_proposals[ $tool_name ] );
 
 				if ( null !== $proposal_spec ) {
 					$this->emit_chat_event(
@@ -407,7 +352,14 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 						: '';
 					$this->logger->log( $proposal_spec['log_action'], $log_path, $payload['reason'] ?? '' );
 
-					$pending_key     = $proposal_spec['response_key'];
+					if ( $is_ext_proposal ) {
+						$pending_key             = 'pending_extension';
+						$payload['label']        = $proposal_spec['label'];
+						$payload['ajax_action']  = $proposal_spec['ajax_action'];
+						$payload['payload_keys'] = $proposal_spec['fields'];
+					} else {
+						$pending_key = $proposal_spec['response_key'];
+					}
 					$pending_payload = $payload;
 					continue;
 				}
@@ -837,58 +789,55 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 		$third_party_block = $this->build_third_party_plugin_section();
 		$rule_10           = $this->build_rule_10( $can_edit_plugins, $can_edit_themes );
 
+		$ext_proposals = haydi_get_proposals();
+
 		$tools = "TOOLS:\n"
 			. "- list_files(path)  — browse directories inside the allowed roots\n"
 			. "- read_file(path)   — read a file inside the allowed roots\n"
-			. "- search_files(query, path, mode, extensions, max_results) — search file contents inside allowed roots; use empty strings for default path/mode/extensions/max_results\n"
-			. "- fetch_url(url)    — fetch a public HTTP/HTTPS URL for reference; private/internal addresses are blocked\n"
+			. "- search_files(query, path, mode, extensions, max_results) — search file contents inside allowed roots\n"
+			. "- fetch_url(url)    — fetch a public HTTP/HTTPS URL for reference\n"
 			. "- list_plugins()    — list all installed plugins with their activation status and file paths\n"
-			. "- run_query(sql, reason) — run a SQL query via wpdb; opens an approval UI for the user\n"
-			. "- write_file(path, content, reason) — write a file; opens an approval UI for the user\n"
-			. "- edit(filePath, oldString, newString, replaceAll, reason) — exact-string edit of an existing file; opens an approval UI for the user\n"
-			. "- delete_file(path, reason) — delete a file; opens an approval UI for the user; a backup is created automatically\n"
-			. "- move_file(src, dest, reason) — move or rename a file; opens an approval UI for the user; a backup of src is created automatically\n"
-			. "- copy_file(src, dest, reason) — copy a file; opens an approval UI for the user; dest is backed up if it already exists\n"
-			. "- delete_dir(path, reason) — recursively delete a directory; opens an approval UI for the user; all files are backed up; root directories cannot be deleted\n"
-			. "- install_plugin(slug, reason) — install a plugin from WordPress.org by slug; opens an approval UI for the user\n"
-			. '- activate_plugin(plugin, reason) — activate an installed plugin by its file path (e.g. "woocommerce/woocommerce.php"); opens an approval UI for the user' . "\n"
-			. "- deactivate_plugin(plugin, reason) — deactivate an active plugin; opens an approval UI for the user\n"
-			. "- run_php(code, reason) — execute a PHP snippet in the WordPress context; opens an approval UI for the user; output is captured\n"
-			. "- list_backups(path?) — list backup files created by this plugin; optionally filter by original file path; always call this tool when asked about backups — never guess\n"
-			. '- restore_backup(backup_file, original_path, reason) — restore a file from a specific backup; opens an approval UI for the user; call list_backups first to get the backup_file name';
+			. "- list_posts(status?, type?, limit?) — list posts/pages with ID, title, status, type, date, content (default: 50 most recently modified of any status)\n"
+			. "- list_users(role?, limit?) — list WordPress users with ID, login, email, display_name, roles (default: 50 most recently registered)\n"
+			. "- list_options(search?) — list WordPress options; without search returns autoloaded options; with search filters option_name by substring\n"
+			. "- list_backups(path?) — list backup files created by this plugin\n"
+			. "- list_extensions() — list available Haydi extensions and whether each one is installed\n"
+			. "- install_plugin(slug, reason) — install a plugin from WordPress.org by slug; opens an approval UI\n"
+			. '- activate_plugin(plugin, reason) — activate an installed plugin; opens an approval UI' . "\n"
+			. "- deactivate_plugin(plugin, reason) — deactivate an active plugin; opens an approval UI\n";
+
+		foreach ( $ext_proposals as $config ) {
+			if ( ! empty( $config['tool_description'] ) ) {
+				$tools .= '- ' . $config['tool_description'] . "\n";
+			}
+		}
+
+		$missing_block = "\n\nEXTENSION AWARENESS:\n"
+			. 'Haydi capabilities depend on which extensions are installed. If a user requests an operation that is not listed in the TOOLS section above, call list_extensions() to check what is available and whether the relevant extension is installed. '
+			. 'If an extension shows as installed: false, explain that the capability requires that extension and direct the user to download haydi-full-extensions.zip from https://github.com/Automattic/haydi/releases and upload the plugin — no activation step needed.';
 
 		$approval = "HOW APPROVAL WORKS:\n"
-			. "The \"approval UI\" for write/edit/run/delete/install/activate/deactivate tools is triggered by the tool call itself, not by your text. When you decide to take an action, invoke the tool in the SAME turn — describing the action in plain text without invoking the tool does nothing and leaves the user staring at a stalled chat. Never say \"I'll run X\" or \"I propose to run X\" without actually calling X in the same response.\n"
-			. "\nDO NOT ASK FOR PERMISSION BEFORE INVOKING A TOOL. The user has already given consent by asking you to do the task; the dedicated approval UI (with Approve / Decline buttons and the full parameters visible) is the only consent gate that matters. Phrases like \"shall I proceed?\", \"let me know if you'd like me to continue\", \"I'll go ahead and...\" (without an actual tool call), or \"do you want me to run this?\" are all forbidden. They cause the chat to stall because the user expected the approval UI, not another text turn. Just call the tool — the approval UI handles the rest.\n"
-			. "\nEXAMPLE OF CORRECT BEHAVIOR:\n"
-			. "  User: \"create a test page\"\n"
-			. "  Wrong response (stalls the chat — DO NOT do this):\n"
-			. "    \"I'll create a published page titled 'Test Page' using wp_insert_post(). Let me know if you'd like me to proceed.\"\n"
-			. "  Correct response (one assistant turn, text + tool call together):\n"
-			. "    \"Creating a published page titled 'Test Page' via wp_insert_post().\"\n"
-			. '    [tool_call: run_php(code="wp_insert_post([\'post_title\'=>\'Test Page\',\'post_status\'=>\'publish\',\'post_content\'=>\'Placeholder.\']);", reason="Create the test page the user asked for.")]' . "\n"
-			. '  The user then sees the Proposed PHP Execution panel with Approve / Decline. That panel is the confirmation. Your text just narrates what the tool call is about to do.';
+			. "The \"approval UI\" for install/activate/deactivate tools (and any extension tools) is triggered by the tool call itself, not by your text. When you decide to take an action, invoke the tool in the SAME turn — describing the action in plain text without invoking the tool does nothing and leaves the user staring at a stalled chat. Never say \"I'll run X\" or \"I propose to run X\" without actually calling X in the same response.\n"
+			. "\nDO NOT ASK FOR PERMISSION BEFORE INVOKING A TOOL. The user has already given consent by asking you to do the task; the dedicated approval UI (with Approve / Decline buttons and the full parameters visible) is the only consent gate that matters. Phrases like \"shall I proceed?\", \"let me know if you'd like me to continue\", \"I'll go ahead and...\" (without an actual tool call), or \"do you want me to run this?\" are all forbidden. They cause the chat to stall because the user expected the approval UI, not another text turn. Just call the tool — the approval UI handles the rest.";
 
 		$rules = "RULES:\n"
 			. "1. ALWAYS call the tool in the same turn as any action you describe. Text alone never triggers anything. Never write \"I'll do X\" or \"I will create X\" without calling the tool in that same response.\n"
 			. "2. Never access files outside the allowed directories above.\n"
 			. "3. Never suggest changes to WordPress core, wp-config.php, .htaccess, or any dotfile.\n"
-			. "4. Use edit for small changes to existing files. oldString must be copied exactly from the current file content and should identify one location unless replaceAll is true.\n"
-			. "5. When calling write_file, include every line of the new file content (not a diff). Use write_file for new files or intentional full-file replacement. You must write the complete content in a single write_file call. Only one write_file call per turn is accepted; subsequent calls are discarded.\n"
-			. "6. When calling run_query, use wpdb table-name conventions (e.g. {$db_prefix}my_table).\n"
-			. "7. Briefly state what an action does and why in your text, then invoke the tool in the same response. Do not stop and wait, do not ask \"shall I proceed?\", do not request confirmation in any form, **just GO** — the approval UI is the only confirmation needed and it is shown by the tool call itself.\n"
-			. "8. Use fetch_url to read documentation or understand an existing site before building something new.\n"
-			. "9. Call list_plugins before install_plugin or activate_plugin to check what is already installed and active.\n"
-			. "10. Use search_files before reading many files manually when you need to find hooks, functions, classes, shortcodes, option names, text strings, or other code references.\n"
-			. "11. Treat existing installed plugins that were not created specifically for this customization as third-party dependencies. Do not write, edit, delete, move, copy, or directly patch their files; use WordPress hooks, documented APIs, settings, template overrides, or site-owned integration code instead.\n"
-			. "12. If no supported hook, API, setting, template override, or customization path exists for a third-party plugin change, do not take action. Tell the user the change is not possible within these limitations.\n"
-			. "13. Be conservative: if you are unsure, ask the user instead of guessing.\n"
-			. "14. Do not reveal any API keys, secrets, or credentials you may encounter in files.\n"
-			. '15. ' . $rule_10;
+			. "4. Briefly state what an action does and why in your text, then invoke the tool in the same response. Do not stop and wait, do not ask \"shall I proceed?\", do not request confirmation in any form, **just GO** — the approval UI is the only confirmation needed and it is shown by the tool call itself.\n"
+			. "5. Use fetch_url to read documentation or understand an existing site before building something new.\n"
+			. "6. Call list_plugins before install_plugin or activate_plugin to check what is already installed and active.\n"
+			. "7. Use search_files before reading many files manually when you need to find hooks, functions, classes, shortcodes, option names, text strings, or other code references.\n"
+			. "8. Treat existing installed plugins that were not created specifically for this customization as third-party dependencies. Do not write, edit, delete, move, copy, or directly patch their files; use WordPress hooks, documented APIs, settings, template overrides, or site-owned integration code instead.\n"
+			. "9. If no supported hook, API, setting, template override, or customization path exists for a third-party plugin change, do not take action. Tell the user the change is not possible within these limitations.\n"
+			. "10. Be conservative: if you are unsure, ask the user instead of guessing.\n"
+			. "11. Do not reveal any API keys, secrets, or credentials you may encounter in files.\n"
+			. '12. ' . $rule_10;
 
-		return 'You are a capable WordPress assistant running inside WP-Admin. You can manage files, run SQL, install/activate plugins, and execute PHP — all with explicit human approval for actions.'
+		return 'You are a capable WordPress assistant running inside WP-Admin. You can read files, list plugins, query posts and users, install/activate plugins, and use any loaded extensions — all with explicit human approval for mutating actions.'
 			. "\n\nALLOWED DIRECTORIES (for file operations only):\n" . $list
 			. "\n\n" . $tools
+			. $missing_block
 			. "\n\n" . $approval
 			. "\n\nLINKING TO FILES:\n" . $linking_block
 			. "\n\nGENERATED PLUGIN VISIBILITY:\n" . $visibility_block
@@ -922,7 +871,7 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 				'Treat existing installed plugins that were not created specifically for the requested customization as third-party dependencies. This includes payment, SEO, commerce, security, form, caching, analytics, and other public plugins.',
 				'You may inspect third-party plugin code to understand behavior and discover action hooks, filter hooks, settings, template overrides, or documented APIs, but do not write, edit, delete, move, copy, or directly patch files inside those plugin directories.',
 				'Implement customizations in site-owned code: a new small custom plugin, an existing site-specific plugin, a child theme, or another user-owned integration layer.',
-				'Do not use run_php, run_query, or file tools to mutate third-party plugin source files or private internals as a workaround. If no supported hook, API, setting, template override, or customization path can satisfy the request, take no action and tell the user the change is not possible within these limitations.',
+				'Do not use extension tools (file writes, run_query, run_php) to mutate third-party plugin source files or private internals as a workaround. If no supported hook, API, setting, template override, or customization path can satisfy the request, take no action and tell the user the change is not possible within these limitations.',
 			)
 		);
 	}
@@ -1009,9 +958,95 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 				return $this->plugin_tool->list_plugins_for_ai();
 			case 'list_backups':
 				return $this->file_tool->list_backups_for_ai( $input['path'] ?? '' );
+			case 'list_posts':
+				return $this->list_posts_for_ai( $input['status'] ?? '', $input['type'] ?? '', $input['limit'] ?? '' );
+			case 'list_users':
+				return $this->list_users_for_ai( $input['role'] ?? '', $input['limit'] ?? '' );
+			case 'list_options':
+				return $this->list_options_for_ai( $input['search'] ?? '' );
+			case 'list_extensions':
+				return $this->list_extensions_for_ai();
 			default:
 				return "Error: Unknown tool '{$name}'.";
 		}
+	}
+
+	private function list_extensions_for_ai(): string {
+		$this->logger->log( 'list_extensions', '' );
+		return wp_json_encode( apply_filters( 'haydi_known_extensions', array() ) );
+	}
+
+	private function list_posts_for_ai( string $status = '', string $type = '', string $limit = '' ): string {
+		$args  = array(
+			'post_status'    => '' !== $status ? sanitize_text_field( $status ) : 'any',
+			'post_type'      => '' !== $type ? sanitize_text_field( $type ) : array( 'post', 'page' ),
+			'posts_per_page' => '' !== $limit ? min( 200, (int) $limit ) : 50,
+			'orderby'        => 'modified',
+			'order'          => 'DESC',
+		);
+		$posts = get_posts( $args );
+		$rows  = array();
+		foreach ( $posts as $post ) {
+			$rows[] = array(
+				'ID'     => $post->ID,
+				'title'  => $post->post_title,
+				'status' => $post->post_status,
+				'type'   => $post->post_type,
+				'date'   => $post->post_date,
+			);
+		}
+		$this->logger->log( 'list_posts', '' );
+		return wp_json_encode( $rows );
+	}
+
+	private function list_users_for_ai( string $role = '', string $limit = '' ): string {
+		$args = array(
+			'number'  => '' !== $limit ? min( 200, (int) $limit ) : 50,
+			'orderby' => 'user_registered',
+			'order'   => 'DESC',
+		);
+		if ( '' !== $role ) {
+			$args['role'] = sanitize_text_field( $role );
+		}
+		$users = get_users( $args );
+		$rows  = array();
+		foreach ( $users as $user ) {
+			$rows[] = array(
+				'ID'           => $user->ID,
+				'login'        => $user->user_login,
+				'email'        => $user->user_email,
+				'display_name' => $user->display_name,
+				'roles'        => $user->roles,
+			);
+		}
+		$this->logger->log( 'list_users', '' );
+		return wp_json_encode( $rows );
+	}
+
+	private function list_options_for_ai( string $search = '' ): string {
+		global $wpdb;
+		if ( '' !== $search ) {
+			$like = $wpdb->esc_like( sanitize_text_field( $search ) );
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			$rows = $wpdb->get_results(
+				$wpdb->prepare( "SELECT option_name, option_value, autoload FROM {$wpdb->options} WHERE option_name LIKE %s LIMIT 100", '%' . $like . '%' ),
+				ARRAY_A
+			);
+		} else {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			$rows = $wpdb->get_results(
+				"SELECT option_name, option_value, autoload FROM {$wpdb->options} WHERE autoload = 'yes' ORDER BY option_name LIMIT 100",
+				ARRAY_A
+			);
+		}
+		foreach ( $rows as &$row ) {
+			if ( strlen( $row['option_value'] ) > 500 ) {
+				$row['option_value'] = substr( $row['option_value'], 0, 500 ) . '...(truncated)';
+			}
+		}
+		unset( $row );
+		$this->logger->log( 'list_options', '', $search );
+		return wp_json_encode( $rows );
 	}
 
 	/**
@@ -1037,6 +1072,10 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 				'fetch_url'    => $this->summarize_fetch_url_activity( $input, $result ),
 				'list_plugins' => $this->summarize_list_plugins_activity( $result ),
 				'list_backups' => $result,
+				'list_posts'      => 'Listed ' . count( (array) json_decode( $result, true ) ) . ' posts.',
+				'list_users'      => 'Listed ' . count( (array) json_decode( $result, true ) ) . ' users.',
+				'list_options'    => 'Listed ' . count( (array) json_decode( $result, true ) ) . ' options.',
+				'list_extensions' => 'Listed extensions.',
 				default        => 'Completed.',
 			};
 		}
@@ -1050,25 +1089,24 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 	}
 
 	private function tool_activity_label( string $name ): string {
+		$ext_proposals = haydi_get_proposals();
+		if ( isset( $ext_proposals[ $name ] ) ) {
+			return 'Prepared ' . strtolower( $ext_proposals[ $name ]['label'] );
+		}
 		return match ( $name ) {
 			'list_files'        => 'Listed files',
 			'read_file'         => 'Read file',
 			'search_files'      => 'Searched files',
 			'fetch_url'         => 'Fetched URL',
 			'list_plugins'      => 'Listed plugins',
-			'run_query'         => 'Prepared query',
-			'write_file'        => 'Prepared write',
-			'edit'              => 'Prepared edit',
-			'delete_file'       => 'Prepared delete',
-			'move_file'         => 'Prepared move',
-			'copy_file'         => 'Prepared copy',
-			'delete_dir'        => 'Prepared folder delete',
+			'list_posts'        => 'Listed posts',
+			'list_users'        => 'Listed users',
+			'list_options'      => 'Listed options',
+			'list_extensions'   => 'Listed extensions',
 			'install_plugin'    => 'Prepared install',
 			'activate_plugin'   => 'Prepared activation',
 			'deactivate_plugin' => 'Prepared deactivation',
-			'run_php'           => 'Prepared PHP',
 			'list_backups'      => 'Listed backups',
-			'restore_backup'    => 'Prepared restore',
 			default             => 'Used tool',
 		};
 	}
@@ -1084,7 +1122,11 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 			),
 			'fetch_url'    => $this->truncate_activity_text( (string) ( $input['url'] ?? '' ), 120 ),
 			'list_plugins' => 'Installed plugin inventory',
-			'list_backups' => $input['path'] ? $this->display_path( (string) $input['path'] ) : 'All backups',
+			'list_posts'   => 'Posts inventory',
+			'list_users'   => 'Users inventory',
+			'list_options'    => $input['search'] ? '"' . $this->truncate_activity_text( (string) $input['search'], 60 ) . '"' : 'Autoloaded options',
+			'list_backups'    => $input['path'] ? $this->display_path( (string) $input['path'] ) : 'All backups',
+			'list_extensions' => 'Extension inventory',
 			default        => 'Running tool.',
 		};
 	}

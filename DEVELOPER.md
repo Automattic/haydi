@@ -40,11 +40,11 @@ vendor/bin/phpunit
 | `AuditLoggerTest` | `log()` field structure, prepend order, `MAX_ENTRIES=200` trimming; `get_log()` happy path + corrupted-option fallback; `clear_log()` |
 | `JetpackContextTest` | `Jetpack_Context` with stubbed Jetpack classes — `is_available`, `is_connected`, plan/modules/stats/posts/referrers/search/security/speed/sync collectors, prompt-section formatting |
 | `JetpackContextUnavailableTest` | Same class with no Jetpack present — every method degrades to null/empty without errors (runs in a separate process) |
-| `AjaxHandlersPluginActionsTest` | `Haydi_Plugin_Tool::list_plugins_for_ai` JSON shape and active-flag accuracy; `Haydi_PHP_Tool::handle_run_php` output capture, no-output placeholder, exception/Error reporting, output-before-throw; `Plugin_Tool::handle_install_plugin` slug validation; `Plugin_Tool::handle_activate_plugin` path validation, file-not-found, and auto-deactivation when the post-activation health check fails; `Plugin_Tool::handle_deactivate_plugin` empty-input rejection and success path |
+| `AjaxHandlersPluginActionsTest` | `Haydi_Plugin_Tool::list_plugins_for_ai` JSON shape and active-flag accuracy; `haydi_php_ext_execute()` (php extension) output capture, no-output placeholder, exception/Error reporting, output-before-throw; `Plugin_Tool::handle_install_plugin` slug validation; `Plugin_Tool::handle_activate_plugin` path validation, file-not-found, and auto-deactivation when the post-activation health check fails; `Plugin_Tool::handle_deactivate_plugin` empty-input rejection and success path |
 | `AjaxHandlersChatTest` | `Haydi_Chat_Store::handle_save_chat` / `handle_load_chat` — token-usage persistence, per-message timestamps, display-log round-trip |
-| `AjaxHandlersApplyWriteTest` | `Haydi_File_Tool::handle_apply_write` — `token_get_all` PHP lint gate, post-write loopback health check via `Health_Check`, automatic restore-from-backup on health failure |
-| `AjaxHandlersFileMoveTest` | `Haydi_File_Tool::handle_move_file` two-step undo — destination is removed and source is restored from backup when the post-move health check fails; healthy moves leave the destination intact and skip restore |
-| `AjaxHandlersQueryTest` | `Haydi_Query_Tool::handle_execute_query` — SELECT/SHOW skip the loopback health check, UPDATE-style queries run it, unhealthy site after a write returns the recovery-mode warning |
+| `AjaxHandlersApplyWriteTest` | `Haydi_File_Tool::handle_apply_write` (via files extension AJAX hook) — `token_get_all` PHP lint gate, post-write loopback health check via `Health_Check`, automatic restore-from-backup on health failure |
+| `AjaxHandlersFileMoveTest` | `haydi_files_ext_execute_move()` (files extension) two-step undo — destination is removed and source is restored from backup when the post-move health check fails; healthy moves leave the destination intact and skip restore |
+| `AjaxHandlersQueryTest` | `haydi_db_ext_execute_query()` (DB extension helper) — SELECT/SHOW skip the loopback health check, UPDATE-style queries run it, unhealthy site after a write returns the recovery-mode warning |
 | `HealthCheckTest` | `Haydi_Health_Check` — `verify()` against healthy/empty/critical-error/`WP_Error` responses; `verify_or_revert()` skip-on-healthy + undo invocation + restore-success vs restore-failed message formatting; `verify_or_warn()` recovery-mode message |
 | `AjaxHandlersLinkingSectionTest` | `Haydi_Ajax_Handlers::build_linking_section` / `build_rule_10` — system-prompt linking guidance across the four `edit_plugins` / `edit_themes` cap combinations (both, plugins-only, themes-only, neither) |
 | `ApiTokenManagerTest` | covers generate/validate/list/revoke token lifecycle; wrong-length and unrecognized token rejection; prefix/label/created metadata; independent storage of multiple tokens |
@@ -72,13 +72,13 @@ npm test
 Playwright tests against a live wp-env instance on `http://localhost:9888`. Covers all AJAX actions including:
 
 - `read_file` with security-rejection cases (paths outside roots)
-- `execute_query` 200-row truncation and non-SELECT write queries
+- `execute_query` 200-row truncation and non-SELECT write queries (requires `haydi-db.php` extension)
 - `save_settings` out-of-range value handling
 - `verify()` — missing nonce and invalid nonce both return 403
 - Chat CRUD: save, list, load, update-in-place, delete
 - `MAX_CHATS=50` eviction (saving 51 chats drops the oldest)
 - Missing required parameters for move, copy, load, delete, and save chat
-- `run_php` — output capture, no-output placeholder, exception reporting, empty/whitespace rejection, WordPress context access
+- `run_php` — output capture, no-output placeholder, exception reporting, empty/whitespace rejection, WordPress context access (requires `haydi-php.php` extension)
 - `install_plugin` — invalid slug rejection (uppercase, path traversal, slash)
 - `activate_plugin` — path traversal, non-PHP extension, file-not-found rejection
 - `deactivate_plugin` — empty plugin rejection
@@ -92,7 +92,8 @@ Playwright tests against a live wp-env instance on `http://localhost:9888`. Cove
 - **`FilesystemGuard` write/delete/move/copy/`backup_dir_recursive`** — require `wp_mkdir_p` and `WP_Filesystem` stubs; the happy paths are exercised by the integration tests instead. (`restore_latest_backup` is unit-tested.)
 - **`handle_chat` rate-limit (429), `MAX_LOOP` exhaustion, `MAX_MESSAGES_BYTES` trim** — require a live AI connector to exercise the agentic loop.
 - **`Haydi_Fetch_Url_Tool::fetch()` cURL-pin (`CURLOPT_RESOLVE`) and `redirection => 0` behaviour** — require a live HTTP transport; pre-request validation is unit-tested.
-- **REST API write operations** (`write_file`, `edit_file`, `run_php`, etc.) via token auth are covered by integration tests; MCP tool execution for write tools is not yet unit-tested (requires filesystem + health-check stubs).
+- **Extension write operations** (`write_file`, `edit_file`, `run_php`, etc.) via token auth are covered by integration tests when extensions are loaded; MCP tool execution for write tools is not yet unit-tested (requires filesystem + health-check stubs).
+- **`list_posts`, `list_users`, `list_options`** — new core read tools; covered by the integration test suite but not yet by dedicated unit tests.
 
 ---
 
@@ -100,17 +101,19 @@ Playwright tests against a live wp-env instance on `http://localhost:9888`. Cove
 
 A few non-obvious conventions that make the code easier to extend:
 
-- **Per-tool class layout.** AJAX handlers are split by capability area under `includes/tools/`: `class-file-tool.php` (read/write/delete/move/copy/delete_dir), `class-plugin-tool.php` (install/activate/deactivate + `list_plugins`), `class-query-tool.php`, `class-php-tool.php`, and `class-fetch-url-tool.php`. Each AJAX-exposed tool extends `Haydi_Ajax_Tool_Base` (which owns `verify`, `post_param`, `require_param`, `dispatch_guard_result`) and implements `register()` to add its own `wp_ajax_*` hooks. `Haydi_Ajax_Handlers` constructs every tool, calls `register()` on each, and only owns the chat agentic loop, system-prompt builder, and a few non-tool endpoints (settings, audit clear, jetpack notice). `Haydi_Chat_Store` (`includes/class-chat-store.php`) owns list/save/load/delete/record_apply and the `trim_messages_to_fit` helper. `Haydi_Fetch_Url_Tool` does not extend the base because it has no AJAX endpoint of its own — the chat dispatcher invokes `fetch_for_ai()` directly during the read-tool loop.
+- **Per-tool class layout.** Core tool classes live under `includes/tools/`: `class-file-tool.php` (read-only: `list_files`, `read_file`, `search_files`, `list_backups`, plus the `haydi_read_file` AJAX handler for the inline viewer), `class-plugin-tool.php` (install/activate/deactivate + `list_plugins`), and `class-fetch-url-tool.php`. Core tools that expose AJAX endpoints extend `Haydi_Ajax_Tool_Base` (which owns `verify`, `post_param`, `require_param`, `dispatch_guard_result`) and implement `register()`. `Haydi_Fetch_Url_Tool` does not extend the base because it has no AJAX endpoint of its own — the chat dispatcher invokes `fetch_for_ai()` directly. Global helpers shared by core and extensions (`haydi_register_proposal`, `haydi_get_proposals`, `haydi_is_authorized_api_request`) live in `includes/functions.php`, which `haydi.php` loads before the class files. `Haydi_Ajax_Handlers` constructs and registers the core tools and owns the chat agentic loop, system-prompt builder, and non-tool endpoints. `Haydi_Chat_Store` owns list/save/load/delete/record_apply and `trim_messages_to_fit`. Write and execute tools (`run_query`, `run_php`, file mutations) live in `extensions/` as self-contained PHP files with standalone functions (`haydi_files_ext_*`, `haydi_db_ext_*`, `haydi_php_ext_*`) — no subclassing needed.
 
-- **Health check + auto-revert.** `Haydi_Health_Check` (`includes/class-health-check.php`) is injected into every mutating tool (`File_Tool`, `Plugin_Tool`, `Query_Tool`, `PHP_Tool`) — read-only tools and `Chat_Store` do not receive it. After a successful mutation, the handler calls either `verify_or_revert($undo, $context)` (file ops, plugin activation — `$undo` is the per-op rollback closure) or `verify_or_warn($context)` (`delete_dir`, `run_query`, `run_php`, `install_plugin` — anything without a clean undo). Both probe the dedicated `haydi_health` AJAX endpoint via a loopback HTTP request pinned to `127.0.0.1` (the path is reused from `admin_url()` so Docker's host-mapped ports don't matter). The endpoint itself is registered only when `DOING_AJAX` and refuses non-loopback `REMOTE_ADDR`s so it can't be probed externally. `move_file`'s undo is the only multi-step one (delete dest + restore src); the rest delegate to `restore_latest_backup()` or `deactivate_plugins()`.
+- **Health check + auto-revert.** `Haydi_Health_Check` (`includes/class-health-check.php`) is injected into every mutating handler — extension execute functions receive it as a parameter; `Plugin_Tool` holds it directly. Read-only tools and `Chat_Store` do not receive it. After a successful mutation, the handler calls either `verify_or_revert($undo, $context)` (file ops, plugin activation — `$undo` is the per-op rollback closure) or `verify_or_warn($context)` (directory delete, SQL, PHP, plugin install — anything without a clean undo). Both probe the dedicated `haydi_health` AJAX endpoint via a loopback HTTP request pinned to `127.0.0.1`. The endpoint itself is registered only when `DOING_AJAX` and refuses non-loopback `REMOTE_ADDR`s. The move undo is the only multi-step one (delete dest + restore src); the rest delegate to `restore_latest_backup()` or `deactivate_plugins()`.
 
-- **Approval-flow data tables.** All 11 approval-required tools (`write_file`, `edit`, `delete_file`, `move_file`, `copy_file`, `delete_dir`, `run_query`, `install_plugin`, `activate_plugin`, `deactivate_plugin`, `run_php`) are described once in two places:
-  - **PHP** — `Haydi_Ajax_Handlers::APPROVAL_TOOLS` maps each tool name to its response key, fields, and audit-log verb. `handle_chat()` reads this to package a pending proposal.
-  - **JS** — `PROPOSALS` in `assets/admin.js` carries the section/button/status DOM IDs, AJAX action, payload keys, label, confirm prompt, and per-state messages. `setupProposal()` wires the show/hide/confirm/cancel handlers from each entry.
+- **Extension system.** `haydi.php` defines a global registry (`haydi_register_proposal` / `haydi_get_proposals`) and auto-loads every `extensions/*.php` file via glob before the plugin bootstraps. Each extension file calls `haydi_register_proposal($tool_name, $config)` with a `label`, `fields`, `ajax_action`, `log_action`, `log_path_field`, and `tool_description`. The chat loop merges `APPROVAL_TOOLS` (core plugin management) with `haydi_get_proposals()` (extensions) and returns a unified `pending_extension` payload for any extension-registered tool, with `label`, `ajax_action`, and `payload_keys` embedded so the generic browser card knows what to show and where to POST on approval. Extensions also hook into `haydi_mcp_tools` (filter, array) and `haydi_mcp_execute_tool` (filter, `$result|null, $name, $args`) to expose their tools over MCP, and register their own REST routes via `rest_api_init` using the `haydi_is_authorized_api_request()` helper defined in `haydi.php`.
 
-  Adding a new approvable tool means adding one entry on each side (plus the matching PHP `handle_*` method on the appropriate tool class and the HTML section) — no need to add another switch case or copy a click-handler block.
+- **Approval-flow data tables.** Core plugin-management tools (`install_plugin`, `activate_plugin`, `deactivate_plugin`) are described in:
+  - **PHP** — `Haydi_Ajax_Handlers::APPROVAL_TOOLS` maps each tool name to its response key, fields, and audit-log verb. `run_chat_loop()` reads this alongside `haydi_get_proposals()` to package pending proposals.
+  - **JS** — `PROPOSALS` in `assets/admin.js` carries the section/button/status DOM IDs, AJAX action, payload keys, label, confirm prompt, and per-state messages. `setupProposal()` wires the show/hide/confirm/cancel handlers from each entry. Extension tools use the single `extension` entry in `PROPOSALS` which reads `ajax_action` and `payload_keys` dynamically from the server payload.
 
-- **AI tool schemas.** `Haydi_AI_Client::TOOL_SCHEMAS` is a single constant listing every tool's name, description, and field descriptions. `get_function_declarations()` expands it into provider-agnostic `FunctionDeclaration` objects.
+  Adding a new core approvable tool means adding one entry in `APPROVAL_TOOLS` and one entry in `PROPOSALS` (plus the matching HTML section). Adding an extension-provided tool only requires calling `haydi_register_proposal()` and wiring the AJAX handler — the browser card is generic.
+
+- **AI tool schemas.** `Haydi_AI_Client::TOOL_SCHEMAS` lists core tool names, descriptions, and field descriptions. `get_function_declarations()` applies the `haydi_tool_schemas` filter (so extensions can merge their own schemas) and expands the result into provider-agnostic `FunctionDeclaration` objects.
 
 - **Test halt sentinel.** Production `wp_send_json_success/error` call `wp_die()` and never return. The handler test fixtures stub them to capture the response then `throw new \HaydiTestHaltException` (declared in `tests/unit/bootstrap.php`); the call helpers in each test catch it. This stops a downstream code path from masking the first error a handler emitted.
 
@@ -118,7 +121,7 @@ A few non-obvious conventions that make the code easier to extend:
 
 - **Jetpack prompt-section cache.** `Haydi_Jetpack_Context::to_prompt_section()` is wrapped in a 5-minute transient (`PROMPT_CACHE_KEY`). Empty results are cached too, so disconnected installs do not re-probe Jetpack on every chat turn.
 
-- **Backup restore tools.** `list_backups(path?)` is a read-only auto-executing tool that scans `wp-content/uploads/haydi-backups/` and returns backup filenames with timestamps. `restore_backup(backup_file, original_path, reason)` is an approval tool handled by `Haydi_File_Tool::handle_restore_backup()` — it validates the backup is within the backup directory, calls `FilesystemGuard::restore_specific_backup()` (which creates a new backup of the current file first), then runs the health check. If the site breaks after restore, `verify_or_revert()` rolls back to the pre-restore backup.
+- **Backup restore tools.** `list_backups(path?)` is a core read-only tool that scans `wp-content/uploads/haydi-backups/` and returns backup filenames with timestamps. `restore_backup(backup_file, original_path, reason)` is an extension-provided approval tool (in `extensions/haydi-files.php`, implemented by `haydi_files_ext_execute_restore_backup()`) — it validates the backup is within the backup directory, calls `FilesystemGuard::restore_specific_backup()` (which creates a new backup of the current file first), then runs the health check. If the site breaks after restore, `verify_or_revert()` rolls back to the pre-restore backup.
 
 - **Two link schemes in chat.** `renderAssistantMarkdown()` only resolves `[label](url)` markdown when the URL begins with `/wp-admin/` (renders as `<a>` to core's plugin/theme editor) or `wpc-view:<absolute-path>` (renders as a button that lazily fetches via `haydi_read_file` and expands an inline read-only `<pre>` below the message). The system prompt is built per-request from `current_user_can('edit_plugins')` / `current_user_can('edit_themes')` — those caps already fold in `DISALLOW_FILE_EDIT`, `DISALLOW_FILE_MODS`, and multisite super-admin rules, so the AI is told to use `wpc-view:` whenever a core editor would 404 or fail capability checks.
 
@@ -126,8 +129,8 @@ A few non-obvious conventions that make the code easier to extend:
 
 - **Remote Access architecture.**
   - *Token manager:* plaintext shown once at generation, SHA-256 hash stored in `wp_options`; 64-char hex token (32 random bytes); prefix stored for UI display. `Haydi_Api_Token_Manager` handles generate/validate/list/revoke independently of any HTTP layer. The UI lives inside a "Remote access" `<details>` row inside the existing **Advanced settings** collapsible in the sidebar — not a separate card.
-  - *REST API:* `Haydi_Rest_Api` is instantiated at the bottom of `haydi.php` alongside `Haydi_Ajax_Handlers`; all routes share one `check_permission()` callback (Bearer token OR `manage_options`); write operations execute immediately (no pending-proposal round-trip) because the token itself is the approval gate.
-  - *MCP endpoint:* `POST /wp-json/haydi/v1/mcp` speaks the MCP Streamable HTTP transport (JSON-RPC 2.0); handles `initialize`, `ping`, `tools/list`, `tools/call`, and `notifications/*`; tool execution reuses the same guard/tool classes as the AJAX handlers via private `mcp_do_*` helpers.
+  - *REST API:* `Haydi_Rest_Api` is instantiated at the bottom of `haydi.php` alongside `Haydi_Ajax_Handlers`; all routes share one `check_permission()` callback (now delegating to `haydi_is_authorized_api_request()` — Bearer token OR `manage_options`). Core registers read and plugin-management routes only. Extension files add write/query/PHP routes via `rest_api_init`.
+  - *MCP endpoint:* `POST /wp-json/haydi/v1/mcp` speaks the MCP Streamable HTTP transport (JSON-RPC 2.0); handles `initialize`, `ping`, `tools/list`, `tools/call`, and `notifications/*`. Core tool execution reuses guard/tool classes via `mcp_do_*` helpers; extension tools register via the `haydi_mcp_tools` (tool definitions) and `haydi_mcp_execute_tool` (dispatch) filters.
 
 ---
 
@@ -149,7 +152,14 @@ The browser stays open after the run so you can inspect the result. Requires wp-
 npm run dist
 ```
 
-Produces `dist/haydi.zip` containing only the installable plugin files — no tests, no dev tooling, no vendor code.
+Produces two zips in `dist/`:
+
+| File | Contents |
+|---|---|
+| `haydi.zip` | Core only — read tools + plugin management. Suitable for WordPress.org submission. Extensions folder contains only `README.md`. |
+| `haydi-full-extensions.zip` | Core + all three extension files (`haydi-files.php`, `haydi-db.php`, `haydi-php.php`). The zip root folder is `haydi/` in both cases so WordPress can install either interchangeably. |
+
+Neither zip contains tests, dev tooling, or vendor code.
 
 ---
 
@@ -171,7 +181,7 @@ git push
 npm run gh:release
 ```
 
-`gh:release` pushes the tag and creates a GitHub release with `dist/haydi.zip` attached.
+`gh:release` pushes the tag and creates a GitHub release with `dist/haydi.zip` attached. Upload `dist/haydi-full-extensions.zip` to the same release manually if you want the full bundle available from GitHub releases.
 
 **Re-releasing the current version** (e.g. if the tag or GitHub release is missing but `haydi.php` already has the right version):
 
@@ -187,23 +197,27 @@ The script reads the version from `haydi.php` directly, so it works even when `n
 
 ```
 haydi/
-├── haydi.php
+├── haydi.php                         # bootstrap + glob extension loader
+├── extensions/
+│   ├── README.md                     # FTP install instructions (included in both zips)
+│   ├── haydi-files.php               # haydi_files_ext_*(): write/edit/delete/move/copy/delete_dir/restore_backup
+│   ├── haydi-db.php                  # haydi_db_ext_execute_query()
+│   └── haydi-php.php                 # haydi_php_ext_execute()
 ├── includes/
+│   ├── functions.php                 # haydi_register_proposal(), haydi_get_proposals(), haydi_is_authorized_api_request()
 │   ├── class-filesystem-guard.php
 │   ├── class-health-check.php        # loopback probe + verify_or_revert / verify_or_warn
 │   ├── class-audit-logger.php
 │   ├── class-jetpack-context.php
-│   ├── class-ai-client.php
-│   ├── class-chat-store.php  # list/save/load/delete + trim_messages_to_fit
+│   ├── class-ai-client.php           # TOOL_SCHEMAS constant + haydi_tool_schemas filter
+│   ├── class-chat-store.php          # list/save/load/delete + trim_messages_to_fit
 │   ├── class-ajax-handlers.php       # chat loop, system prompt, dispatch
 │   ├── class-api-token-manager.php   # generate/validate/list/revoke long-lived API tokens
 │   ├── class-rest-api.php            # REST API routes + MCP Streamable HTTP endpoint
 │   └── tools/
 │       ├── class-ajax-tool-base.php  # verify/post_param/require_param/dispatch_guard_result
-│       ├── class-file-tool.php       # read/write/delete/move/copy/delete_dir
+│       ├── class-file-tool.php       # read ops only: list/read/search/list_backups + haydi_read_file AJAX
 │       ├── class-plugin-tool.php     # install/activate/deactivate + list_plugins
-│       ├── class-query-tool.php      # run_query
-│       ├── class-php-tool.php        # run_php
 │       └── class-fetch-url-tool.php  # fetch_url + SSRF guard (no AJAX endpoint)
 ├── admin/
 │   ├── main-page.php
