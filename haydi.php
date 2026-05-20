@@ -36,11 +36,11 @@ require_once HAYDI_DIR . 'includes/class-api-token-manager.php';
 require_once HAYDI_DIR . 'includes/class-rest-api.php';
 
 // Auto-load PHP files dropped into the extensions/ directory.
-$_haydi_exts = glob( HAYDI_DIR . 'extensions/*.php' );
-foreach ( ( $_haydi_exts ? $_haydi_exts : array() ) as $_haydi_ext ) {
-	require_once $_haydi_ext;
+$haydi_exts = glob( HAYDI_DIR . 'extensions/*.php' );
+foreach ( ( $haydi_exts ? $haydi_exts : array() ) as $haydi_ext ) {
+	require_once $haydi_ext;
 }
-unset( $_haydi_exts, $_haydi_ext );
+unset( $haydi_exts, $haydi_ext );
 
 /**
  * Main plugin bootstrap class.
