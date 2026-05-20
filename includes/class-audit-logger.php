@@ -20,7 +20,7 @@ class Haydi_Audit_Logger {
 	public function log( string $action, string $path, string $details = '' ): void {
 		$user  = wp_get_current_user();
 		$entry = array(
-			'time'    => current_time( 'mysql' ),
+			'time'    => current_time( 'mysql', true ),
 			'user_id' => $user->ID,
 			'user'    => $user->user_login,
 			'action'  => sanitize_key( $action ),

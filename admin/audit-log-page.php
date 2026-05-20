@@ -46,7 +46,7 @@ $page_log = array_slice( $log, ( $wpc_page - 1 ) * $wpc_per, $wpc_per );
 				<?php else : ?>
 					<?php foreach ( $page_log as $entry ) : ?>
 					<tr>
-						<td><?php echo esc_html( $entry['time'] ); ?></td>
+						<td><?php echo esc_html( get_date_from_gmt( $entry['time'] ) ); ?></td>
 						<td><?php echo esc_html( $entry['user'] ); ?></td>
 						<td><code><?php echo esc_html( $entry['action'] ); ?></code></td>
 						<td class="wpc-audit-path"><?php echo esc_html( $entry['path'] ); ?></td>

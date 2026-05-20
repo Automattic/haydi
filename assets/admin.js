@@ -987,7 +987,7 @@
 
             var html = '';
             entries.forEach(function (e) {
-                var ts      = Math.floor(new Date(e.time.replace(' ', 'T')).getTime() / 1000);
+                var ts      = Math.floor(new Date(e.time.replace(' ', 'T') + 'Z').getTime() / 1000);
                 var ago     = timeAgo(ts);
                 var label   = auditActionLabel(e.action);
                 var path    = e.path ? e.path.replace(/^.*\/wp-content\//, '…/wp-content/') : '';
