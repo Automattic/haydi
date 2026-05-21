@@ -795,13 +795,13 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 			. "- list_files(path) — browse directories\n"
 			. "- read_file(path) — read a file\n"
 			. "- search_files(query, path, mode, extensions, max_results) — search file contents\n"
-			. "- fetch_url(url) — fetch a public URL\n"
+			. "- fetch_url(url) — fetch a public HTTP/HTTPS URL\n"
 			. "- list_plugins() — list installed plugins with status and file paths\n"
 			. "- list_posts(status?, type?, limit?) — list posts/pages (default: 50 most recently modified)\n"
 			. "- list_users(role?, limit?) — list users (default: 50 most recently registered)\n"
 			. "- list_options(search?) — list options; no search returns autoloaded; search filters by option_name\n"
 			. "- list_backups(path?) — list backups\n"
-			. "- list_extensions() — list extensions with install status\n"
+			. "- list_extensions() — list currently loaded extensions\n"
 			. "- install_plugin(slug, reason) — install a plugin from WordPress.org; opens an approval UI\n"
 			. "- activate_plugin(plugin, reason) — activate an installed plugin; opens an approval UI\n"
 			. "- deactivate_plugin(plugin, reason) — deactivate an active plugin; opens an approval UI\n";
@@ -814,7 +814,7 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 
 		$missing_block = "\n\nEXTENSION AWARENESS:\n"
 			. 'If a user requests an operation not listed in TOOLS, call list_extensions(). '
-			. 'If the needed extension shows installed: false, direct the user to download haydi-full-extensions.zip from https://github.com/Automattic/haydi/releases (no activation needed).';
+			. 'If the needed extension is not listed, it is not loaded — direct the user to download haydi-full-extensions.zip from https://github.com/Automattic/haydi/releases (no activation needed).';
 
 		$approval = "HOW APPROVAL WORKS:\n"
 			. 'Invoke the tool in the same response as your action — text alone triggers nothing. Never ask "shall I proceed?" or any equivalent; the approval UI (shown by the tool call itself, with Approve/Decline buttons) is the only consent gate.';
@@ -848,7 +848,7 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 		return implode(
 			"\n",
 			array(
-				"When generating a plugin that affects front-end visitors, default to admin-only preview (gate with current_user_can( 'manage_options' )) unless the user explicitly asks for immediate public release.",
+				"When generating or changing a plugin that affects front-end visitors, default to admin-only preview (gate with current_user_can( 'manage_options' )) unless the user explicitly asks for immediate public release.",
 				'After applying, tell the admin to verify before making it visible to all visitors.',
 				'Do not apply this gate to backend tools, safety fixes, or maintenance-only changes.',
 			)
