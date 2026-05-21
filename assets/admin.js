@@ -1528,7 +1528,7 @@
     });
 
     $('#wpc-btn-new-chat').on('click', function () {
-        if (!confirm('Start a new chat? The current history will be cleared.')) {
+        if (!confirm('Start a new chat? The current chat will be saved and a new one will begin.')) {
             return;
         }
         // Save synchronously: a debounced save firing after currentChatId
