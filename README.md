@@ -6,6 +6,8 @@ no SSH.
 
 Inspired by [Matt Mullenweg](https://ma.tt) to build this. Props to [Cem Ünalan](https://blog.cemunalan.com.tr/) for the original idea of a plugin-generating plugin.
 
+**[Try it in WordPress Playground →](https://playground.wordpress.net/?blueprint-url=https://raw.githubusercontent.com/automattic/haydi/trunk/blueprint.json)**
+
 ### UI
 
 The page is a single full-screen chat. There is no built-in file browser or editor — file references in the AI's replies are clickable and adapt to what your site actually allows:
