@@ -236,7 +236,7 @@ test.describe('Chat — pending proposal handling', () => {
         await ctx.close();
     });
 
-    test('issue #7: approving a PHP snippet that errors propagates the error back to the agent', async ({ browser }) => {
+    test('issue #7: approving a PHP snippet that errors should propagate the error back to the agent', async ({ browser }) => {
         const ctx  = await browser.newContext({ storageState: AUTH_FILE });
         const page = await ctx.newPage();
 
