@@ -2544,6 +2544,9 @@
                         runChatRequest();
                     }
                 })).fail(function (jqXHR) {
+                    if (jqXHR.statusText === 'abort') {
+                        return;
+                    }
                     var failMsg = ajaxFailureMessage(jqXHR, 'Request failed.');
                     var toolFailContent = 'Error: ' + failMsg;
                     appendMessage('error', toolFailContent);
