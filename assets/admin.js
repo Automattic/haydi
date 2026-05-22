@@ -2542,8 +2542,21 @@
                         hideAllProposals();
                         runChatRequest();
                     }
-                })).fail(function () {
-                    $('#' + cfg.statusId).text('Request failed.').addClass('is-error');
+                })).fail(function (jqXHR) {
+                    var failMsg = ajaxFailureMessage(jqXHR, 'Request failed.');
+                    $('#' + cfg.statusId).text(failMsg).addClass('is-error');
+
+                    state.messages.push({
+                        role:    'user',
+                        content: (p.pre_results || []).concat([{
+                            type:        'tool_result',
+                            tool_use_id: p.tool_use_id,
+                            name:        p.tool_name,
+                            content:     'Error: ' + failMsg,
+                        }]),
+                    });
+                    hideAllProposals();
+                    runChatRequest();
                 });
             };
 
