@@ -130,6 +130,9 @@ class AjaxHandlersLinkingSectionTest extends TestCase {
 		$this->assertStringContainsString( 'action hooks', $out );
 		$this->assertStringContainsString( 'filter hooks', $out );
 		$this->assertStringContainsString( 'do not write, edit, delete, move, copy', $out );
+		$this->assertStringContainsString( 'run_query', $out );
+		$this->assertStringContainsString( 'run_php', $out );
+		$this->assertStringContainsString( 'private internals', $out );
 		$this->assertStringContainsString( 'take no action', $out );
 		$this->assertStringContainsString( 'not possible within these limitations', $out );
 	}

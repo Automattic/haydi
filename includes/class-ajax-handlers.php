@@ -817,7 +817,7 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 			. 'If the needed extension is not listed, it is not loaded — direct the user to download haydi-full-extensions.zip from https://github.com/Automattic/haydi/releases (no activation needed).';
 
 		$approval = "HOW APPROVAL WORKS:\n"
-			. 'Invoke the tool in the same response as your action — text alone triggers nothing. Never ask "shall I proceed?" or any equivalent; the approval UI (shown by the tool call itself, with Approve/Decline buttons) is the only consent gate.';
+			. 'Invoke the tool in the same response as your action — text alone triggers nothing. Never ask "shall I proceed?", "let me know if you\'d like me to continue", or any equivalent; the approval UI (shown by the tool call itself, with Approve/Decline buttons) is the only consent gate.';
 
 		$rules = "RULES:\n"
 			. "1. Never access files outside the allowed directories above.\n"
@@ -862,7 +862,7 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 		return implode(
 			"\n",
 			array(
-				'Inspect third-party plugin code to find action hooks, filter hooks, APIs, settings, or template overrides, but do not write, edit, delete, move, copy, or patch their files — treat them as third-party dependencies.',
+				'Inspect third-party plugin code to find action hooks, filter hooks, APIs, settings, or template overrides, but do not write, edit, delete, move, copy, or patch their files — treat them as third-party dependencies. Do not use extension tools (file writes, run_query, run_php) to mutate third-party plugin source files or private internals as a workaround.',
 				'Implement customizations in site-owned code (a custom plugin, existing site plugin, child theme, or integration layer).',
 				'If no supported hook, API, setting, or template override can satisfy the request, take no action and tell the user the change is not possible within these limitations.',
 			)
