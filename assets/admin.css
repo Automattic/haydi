@@ -344,6 +344,7 @@
 #wpc-install-section,
 #wpc-activate-section,
 #wpc-deactivate-section,
+#wpc-extension-section,
 #wpc-php-section,
 #wpc-restore-section,
 #wpc-proposal-section {
@@ -367,6 +368,7 @@
 #wpc-copy-section,
 #wpc-install-section,
 #wpc-activate-section,
+#wpc-extension-section,
 #wpc-proposal-section {
     --wpc-proposal-accent: #2271b1;
     --wpc-proposal-bg: #f8fbff;
@@ -855,7 +857,7 @@
     flex-direction: column;
     gap: 6px;
     margin-top: 6px;
-    padding: 8px 10px;
+    padding: 8px 12px;
     border: 1px solid #dcdcde;
     border-radius: 6px;
     background: #fbfbfc;
