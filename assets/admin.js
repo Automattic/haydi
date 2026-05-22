@@ -2528,7 +2528,8 @@
                     } else {
                         var errMsg = (res.data && res.data.message) ? res.data.message : 'Failed.';
                         var errOutput = (res.data && res.data.output) ? '\nOutput: ' + res.data.output : '';
-                        $('#' + cfg.statusId).text(errMsg).addClass('is-error');
+                        var toolErrContent = 'Error: ' + errMsg + errOutput;
+                        appendMessage('error', toolErrContent);
 
                         state.messages.push({
                             role:    'user',
@@ -2536,7 +2537,7 @@
                                 type:        'tool_result',
                                 tool_use_id: p.tool_use_id,
                                 name:        p.tool_name,
-                                content:     'Error: ' + errMsg + errOutput,
+                                content:     toolErrContent,
                             }]),
                         });
                         hideAllProposals();
@@ -2544,7 +2545,8 @@
                     }
                 })).fail(function (jqXHR) {
                     var failMsg = ajaxFailureMessage(jqXHR, 'Request failed.');
-                    $('#' + cfg.statusId).text(failMsg).addClass('is-error');
+                    var toolFailContent = 'Error: ' + failMsg;
+                    appendMessage('error', toolFailContent);
 
                     state.messages.push({
                         role:    'user',
@@ -2552,7 +2554,7 @@
                             type:        'tool_result',
                             tool_use_id: p.tool_use_id,
                             name:        p.tool_name,
-                            content:     'Error: ' + failMsg,
+                            content:     toolFailContent,
                         }]),
                     });
                     hideAllProposals();

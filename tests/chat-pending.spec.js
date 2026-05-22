@@ -305,8 +305,11 @@ test.describe('Chat — pending proposal handling', () => {
 
         await page.click('#wpc-btn-confirm-extension');
 
-        // The proposal panel must be hidden after the error.
-        await expect(page.locator('#wpc-extension-section')).toBeHidden({ timeout: 5_000 });
+        // The error must appear in the chat transcript so the user can see it.
+        await expect(page.locator('.wpc-message--error').filter({ hasText: 'PHP error' })).toBeVisible({ timeout: 5_000 });
+
+        // The proposal panel is hidden after the error is surfaced.
+        await expect(page.locator('#wpc-extension-section')).toBeHidden();
 
         // A second chat request must have fired.
         await expect.poll(() => chatCalls, { timeout: 5_000 }).toBeGreaterThanOrEqual(2);
