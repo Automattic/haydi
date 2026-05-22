@@ -236,6 +236,95 @@ test.describe('Chat — pending proposal handling', () => {
         await ctx.close();
     });
 
+    test('issue #7: approving a PHP snippet that errors should propagate the error back to the agent', async ({ browser }) => {
+        const ctx  = await browser.newContext({ storageState: AUTH_FILE });
+        const page = await ctx.newPage();
+
+        await page.goto(PLUGIN_URL);
+        await setupPage(page);
+
+        let chatCalls  = 0;
+        let secondMsgs = null;
+
+        await page.route('**/admin-ajax.php', async (route) => {
+            const params = new URLSearchParams(route.request().postData() || '');
+            const action = params.get('action');
+
+            if (isChatAction(action)) {
+                chatCalls++;
+                const reqMessages = JSON.parse(params.get('messages') || '[]');
+
+                if (chatCalls === 1) {
+                    const echoed = reqMessages.concat([{
+                        role:    'assistant',
+                        content: [
+                            { type: 'tool_use', id: TOOL_USE_ID, name: 'run_php',
+                              input: { code: 'bad_fn();', reason: 'test' } },
+                        ],
+                    }]);
+                    return fulfillChat(route, action, {
+                        text:     'Running PHP.',
+                        messages: echoed,
+                        pending_extension: {
+                            tool_use_id:  TOOL_USE_ID,
+                            tool_name:    'run_php',
+                            label:        'Run PHP',
+                            ajax_action:  'haydi_run_php',
+                            payload_keys: ['code', 'reason'],
+                            code:         'bad_fn();',
+                            reason:       'test',
+                            pre_results:  [],
+                        },
+                    });
+                }
+
+                secondMsgs = reqMessages;
+                return fulfillChat(route, action, {
+                    text:     'I will fix the snippet.',
+                    messages: reqMessages.concat([{ role: 'assistant', content: 'I will fix the snippet.' }]),
+                });
+            }
+
+            if (action === 'haydi_run_php') {
+                return route.fulfill({
+                    status:      200,
+                    contentType: 'application/json',
+                    body:        JSON.stringify({
+                        success: false,
+                        data:    { message: 'PHP error — Error: Call to undefined function bad_fn()', output: '' },
+                    }),
+                });
+            }
+
+            return route.continue();
+        });
+
+        await page.fill('#wpc-chat-input', 'run some php');
+        await page.click('#wpc-btn-send');
+        await expect(page.locator('#wpc-extension-section')).toBeVisible();
+
+        await page.click('#wpc-btn-confirm-extension');
+
+        // The error must appear in the chat transcript so the user can see it.
+        await expect(page.locator('.wpc-message--error').filter({ hasText: 'PHP error' })).toBeVisible({ timeout: 5_000 });
+
+        // The proposal panel is hidden after the error is surfaced.
+        await expect(page.locator('#wpc-extension-section')).toBeHidden();
+
+        // A second chat request must have fired.
+        await expect.poll(() => chatCalls, { timeout: 5_000 }).toBeGreaterThanOrEqual(2);
+
+        // The second request must carry a tool_result with the error message.
+        const last = secondMsgs[secondMsgs.length - 1];
+        expect(last.role).toBe('user');
+        const toolResults = last.content.filter((b) => b.type === 'tool_result');
+        expect(toolResults).toHaveLength(1);
+        expect(toolResults[0].tool_use_id).toBe(TOOL_USE_ID);
+        expect(toolResults[0].content).toMatch(/PHP error/);
+
+        await ctx.close();
+    });
+
     test('clicking Send while an approval AJAX is in flight is a no-op (race guard)', async ({ browser }) => {
         const ctx  = await browser.newContext({ storageState: AUTH_FILE });
         const page = await ctx.newPage();

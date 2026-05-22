@@ -82,7 +82,7 @@ Playwright tests against a live wp-env instance on `http://localhost:9888`. Cove
 - `install_plugin` — invalid slug rejection (uppercase, path traversal, slash)
 - `activate_plugin` — path traversal, non-PHP extension, file-not-found rejection
 - `deactivate_plugin` — empty plugin rejection
-- `chat-pending.spec.js` — typing a new message while a pending proposal is outstanding cancels the proposal cleanly without orphaning a `tool_use` block
+- `chat-pending.spec.js` — typing a new message while a pending proposal is outstanding cancels the proposal cleanly without orphaning a `tool_use` block; approving a PHP snippet that returns an error propagates the error back to the agent as a `tool_result` so it can retry
 - Token generation, REST API file/status operations with Bearer token auth
 - MCP initialize handshake, tools/list, tools/call, token revocation
 

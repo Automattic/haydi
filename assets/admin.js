@@ -2527,10 +2527,41 @@
                         runChatRequest();
                     } else {
                         var errMsg = (res.data && res.data.message) ? res.data.message : 'Failed.';
-                        $('#' + cfg.statusId).text(errMsg).addClass('is-error');
+                        var errOutput = (res.data && res.data.output) ? '\nOutput: ' + res.data.output : '';
+                        var toolErrContent = 'Error: ' + errMsg + errOutput;
+                        appendMessage('error', toolErrContent);
+
+                        state.messages.push({
+                            role:    'user',
+                            content: (p.pre_results || []).concat([{
+                                type:        'tool_result',
+                                tool_use_id: p.tool_use_id,
+                                name:        p.tool_name,
+                                content:     toolErrContent,
+                            }]),
+                        });
+                        hideAllProposals();
+                        runChatRequest();
                     }
-                })).fail(function () {
-                    $('#' + cfg.statusId).text('Request failed.').addClass('is-error');
+                })).fail(function (jqXHR) {
+                    if (jqXHR.statusText === 'abort') {
+                        return;
+                    }
+                    var failMsg = ajaxFailureMessage(jqXHR, 'Request failed.');
+                    var toolFailContent = 'Error: ' + failMsg;
+                    appendMessage('error', toolFailContent);
+
+                    state.messages.push({
+                        role:    'user',
+                        content: (p.pre_results || []).concat([{
+                            type:        'tool_result',
+                            tool_use_id: p.tool_use_id,
+                            name:        p.tool_name,
+                            content:     toolFailContent,
+                        }]),
+                    });
+                    hideAllProposals();
+                    runChatRequest();
                 });
             };
 
