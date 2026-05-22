@@ -2527,7 +2527,20 @@
                         runChatRequest();
                     } else {
                         var errMsg = (res.data && res.data.message) ? res.data.message : 'Failed.';
+                        var errOutput = (res.data && res.data.output) ? '\nOutput: ' + res.data.output : '';
                         $('#' + cfg.statusId).text(errMsg).addClass('is-error');
+
+                        state.messages.push({
+                            role:    'user',
+                            content: (p.pre_results || []).concat([{
+                                type:        'tool_result',
+                                tool_use_id: p.tool_use_id,
+                                name:        p.tool_name,
+                                content:     'Error: ' + errMsg + errOutput,
+                            }]),
+                        });
+                        hideAllProposals();
+                        runChatRequest();
                     }
                 })).fail(function () {
                     $('#' + cfg.statusId).text('Request failed.').addClass('is-error');
