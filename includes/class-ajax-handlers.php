@@ -817,14 +817,14 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 			. 'If the needed extension is not listed, it is not loaded — direct the user to download haydi-full-extensions.zip from https://github.com/Automattic/haydi/releases (no activation needed).';
 
 		$approval = "HOW APPROVAL WORKS:\n"
-			. 'Invoke the tool in the same response as your action — text alone triggers nothing. Never ask "shall I proceed?", "let me know if you\'d like me to continue", or any equivalent; the approval UI (shown by the tool call itself, with Approve/Decline buttons) is the only consent gate.';
+			. 'Invoke the tool in the same response as your action — text alone triggers nothing. DO NOT ASK FOR PERMISSION before invoking; the approval UI (shown by the tool call itself, with Approve/Decline buttons and full parameters visible) is the only consent gate. Never say "shall I proceed?", "let me know if you\'d like me to continue", or any equivalent — these stall the chat because the user expects the approval UI, not another text turn.';
 
 		$rules = "RULES:\n"
 			. "1. Never access files outside the allowed directories above.\n"
 			. "2. Never suggest changes to WordPress core, wp-config.php, .htaccess, or any dotfile.\n"
 			. "3. Use fetch_url to read documentation or understand an existing site before building something new.\n"
-			. "4. Call list_plugins before install_plugin or activate_plugin.\n"
-			. "5. Use search_files before manually reading many files to locate hooks, functions, classes, or strings.\n"
+			. "4. Call list_plugins before install_plugin or activate_plugin to check what is already installed and active.\n"
+			. "5. Use search_files before manually reading many files to locate hooks, functions, classes, shortcodes, option names, or text strings.\n"
 			. "6. Be conservative: if you are unsure, ask the user instead of guessing.\n"
 			. "7. Do not reveal any API keys, secrets, or credentials you may encounter in files.\n"
 			. '8. ' . $rule_10;
