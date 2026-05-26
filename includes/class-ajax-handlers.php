@@ -799,12 +799,12 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 			. "- list_plugins() — list installed plugins with status and file paths\n"
 			. "- list_posts(status?, type?, limit?) — list posts/pages (default: 50 most recently modified)\n"
 			. "- list_users(role?, limit?) — list users (default: 50 most recently registered)\n"
-			. "- list_options(search?) — list options; no search returns autoloaded; search filters by option_name\n"
-			. "- list_backups(path?) — list backups\n"
+			. "- list_options(search?) — autoloaded options when search is empty; otherwise filtered by option_name\n"
+			. "- list_backups(path?) — list file backups\n"
 			. "- list_extensions() — list currently loaded extensions\n"
-			. "- install_plugin(slug, reason) — install a plugin from WordPress.org; opens an approval UI\n"
-			. "- activate_plugin(plugin, reason) — activate an installed plugin; opens an approval UI\n"
-			. "- deactivate_plugin(plugin, reason) — deactivate an active plugin; opens an approval UI\n";
+			. "- install_plugin(slug, reason) — install a plugin from WordPress.org\n"
+			. "- activate_plugin(plugin, reason) — activate an installed plugin\n"
+			. "- deactivate_plugin(plugin, reason) — deactivate an active plugin\n";
 
 		foreach ( $ext_proposals as $config ) {
 			if ( ! empty( $config['tool_description'] ) ) {
@@ -813,8 +813,7 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 		}
 
 		$missing_block = "\n\nEXTENSION AWARENESS:\n"
-			. 'If a user requests an operation not listed in TOOLS, call list_extensions(). '
-			. 'If the needed extension is not listed, it is not loaded — direct the user to download haydi-full-extensions.zip from https://github.com/Automattic/haydi/releases (no activation needed).';
+			. 'If a requested operation is not in TOOLS, the extension is not loaded — direct the user to download haydi-full-extensions.zip from https://github.com/Automattic/haydi/releases (no activation needed).';
 
 		$approval = "HOW APPROVAL WORKS:\n"
 			. 'Invoke the tool in the same response as your action — text alone triggers nothing. DO NOT ASK FOR PERMISSION before invoking; the approval UI (shown by the tool call itself, with Approve/Decline buttons and full parameters visible) is the only consent gate. Never say "shall I proceed?", "let me know if you\'d like me to continue", or any equivalent — these stall the chat because the user expects the approval UI, not another text turn.';
@@ -822,14 +821,13 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 		$rules = "RULES:\n"
 			. "1. Never access files outside the allowed directories above.\n"
 			. "2. Never suggest changes to WordPress core, wp-config.php, .htaccess, or any dotfile.\n"
-			. "3. Use fetch_url to read documentation or understand an existing site before building something new.\n"
-			. "4. Call list_plugins before install_plugin or activate_plugin to check what is already installed and active.\n"
-			. "5. Use search_files before manually reading many files to locate hooks, functions, classes, shortcodes, option names, or text strings.\n"
-			. "6. Be conservative: if you are unsure, ask the user instead of guessing.\n"
-			. "7. Do not reveal any API keys, secrets, or credentials you may encounter in files.\n"
-			. '8. ' . $rule_10;
+			. "3. Call list_plugins before install_plugin or activate_plugin to check what is already installed and active.\n"
+			. "4. Use search_files before manually reading many files to locate hooks, functions, classes, shortcodes, option names, or text strings.\n"
+			. "5. Be conservative: if you are unsure, ask the user instead of guessing.\n"
+			. "6. Do not reveal any API keys, secrets, or credentials you may encounter in files.\n"
+			. '7. ' . $rule_10;
 
-		return 'You are a capable WordPress assistant running inside WP-Admin. You can read files, list plugins, query posts and users, install/activate plugins, and use any loaded extensions — all with explicit human approval for mutating actions.'
+		return 'You are a WordPress assistant running inside WP-Admin. Mutating actions require human approval.'
 			. "\n\nALLOWED DIRECTORIES (for file operations only):\n" . $list
 			. "\n\n" . $tools
 			. $missing_block
@@ -848,9 +846,8 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 		return implode(
 			"\n",
 			array(
-				"When generating or changing a plugin that affects front-end visitors, default to admin-only preview (gate with current_user_can( 'manage_options' )) unless the user explicitly asks for immediate public release.",
+				"For plugins affecting front-end visitors, default to admin-only preview — gate with current_user_can( 'manage_options' ) unless the user explicitly asks for immediate public release. Skip for backend tools, safety fixes, or maintenance-only changes.",
 				'After applying, tell the admin to verify before making it visible to all visitors.',
-				'Do not apply this gate to backend tools, safety fixes, or maintenance-only changes.',
 			)
 		);
 	}
@@ -862,9 +859,9 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 		return implode(
 			"\n",
 			array(
-				'Inspect third-party plugin code to find action hooks, filter hooks, APIs, settings, or template overrides, but do not write, edit, delete, move, copy, or patch their files — treat them as third-party dependencies. Do not use extension tools (file writes, run_query, run_php) to mutate third-party plugin source files or private internals as a workaround.',
-				'Implement customizations in site-owned code (a custom plugin, existing site plugin, child theme, or integration layer).',
-				'If no supported hook, API, setting, or template override can satisfy the request, take no action and tell the user the change is not possible within these limitations.',
+				'Treat third-party plugins as read-only dependencies. Inspect their code for action hooks, filter hooks, APIs, settings, or template overrides, but never modify their files or private internals — not via file writes, run_query, or run_php.',
+				'Implement customizations in site-owned code (custom plugin, child theme, or integration layer).',
+				'If no supported hook, API, setting, or template override satisfies the request, take no action and tell the user it is not possible within these limitations.',
 			)
 		);
 	}
@@ -881,26 +878,25 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 	 */
 	private function build_linking_section( bool $can_edit_plugins, bool $can_edit_themes ): string {
 		$lines = array(
-			'Link files with markdown [label](url). Only /wp-admin/ and wpc-view: URLs render as links — others show as plain text.',
+			'Link files with markdown [label](url). Only /wp-admin/ and wpc-view: URLs render as links.',
 			'',
-			'Use wpc-view:<absolute-path> for a read-only inline viewer (always works inside allowed roots):',
-			'  - Example: [hello.php](wpc-view:/var/www/html/wp-content/plugins/hello/hello.php)',
+			'- wpc-view:<absolute-path> — read-only inline viewer for any file in allowed roots.',
+			'  Example: [hello.php](wpc-view:/var/www/html/wp-content/plugins/hello/hello.php)',
 		);
 
-		if ( $can_edit_plugins ) {
+		if ( $can_edit_plugins || $can_edit_themes ) {
 			$lines[] = '';
-			$lines[] = 'For plugin files the user can also edit, prefer the core plugin editor (opens in a new tab):';
-			$lines[] = '  - /wp-admin/plugin-editor.php?file=<file>&plugin=<plugin>';
-			$lines[] = '  - <plugin> is the plugin\'s main file (e.g. "hello.php" or "woocommerce/woocommerce.php").';
-			$lines[] = '  - <file> is the file\'s path relative to wp-content/plugins.';
+			$lines[] = 'For files the user can edit, prefer the core editor:';
+		}
+
+		if ( $can_edit_plugins ) {
+			$lines[] = '- /wp-admin/plugin-editor.php?file=<file>&plugin=<plugin-main-file>';
+			$lines[] = '  e.g. plugin=hello.php or plugin=woocommerce/woocommerce.php; file is relative to wp-content/plugins';
 		}
 
 		if ( $can_edit_themes ) {
-			$lines[] = '';
-			$lines[] = 'For theme files the user can also edit, prefer the core theme editor (opens in a new tab):';
-			$lines[] = '  - /wp-admin/theme-editor.php?file=<file>&theme=<theme-slug>';
-			$lines[] = '  - <theme-slug> is the theme directory name (e.g. "twentytwentyfive").';
-			$lines[] = '  - <file> is the file\'s path relative to that theme directory.';
+			$lines[] = '- /wp-admin/theme-editor.php?file=<file>&theme=<theme-slug>';
+			$lines[] = '  theme is the directory name (e.g. twentytwentyfive); file is relative to that theme directory';
 		}
 
 		if ( ! $can_edit_plugins && ! $can_edit_themes ) {

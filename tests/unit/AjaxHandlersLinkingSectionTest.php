@@ -117,6 +117,7 @@ class AjaxHandlersLinkingSectionTest extends TestCase {
 		$this->assertStringContainsString( 'front-end visitors', $out );
 		$this->assertStringContainsString( "current_user_can( 'manage_options' )", $out );
 		$this->assertStringContainsString( 'visible to all visitors', $out );
+		$this->assertStringContainsString( 'backend tools, safety fixes, or maintenance', $out, 'Skip-cases must remain documented so admin tools are not gated.' );
 	}
 
 	// -----------------------------------------------------------------------
@@ -126,13 +127,18 @@ class AjaxHandlersLinkingSectionTest extends TestCase {
 	public function test_third_party_plugin_section_requires_hooks_and_refuses_unsupported_patches(): void {
 		$out = $this->third_party();
 
-		$this->assertStringContainsString( 'third-party dependencies', $out );
+		// Inspection is allowed; modification is not.
+		$this->assertStringContainsString( 'read-only dependencies', $out );
 		$this->assertStringContainsString( 'action hooks', $out );
 		$this->assertStringContainsString( 'filter hooks', $out );
-		$this->assertStringContainsString( 'do not write, edit, delete, move, copy', $out );
+		$this->assertMatchesRegularExpression( '/never modify|do not (write|modify)/i', $out, 'Must explicitly forbid modifying third-party files.' );
+
+		// Extension-tool workarounds must be blocked.
 		$this->assertStringContainsString( 'run_query', $out );
 		$this->assertStringContainsString( 'run_php', $out );
 		$this->assertStringContainsString( 'private internals', $out );
+
+		// Refusal contract when no supported hook exists.
 		$this->assertStringContainsString( 'take no action', $out );
 		$this->assertStringContainsString( 'not possible within these limitations', $out );
 	}
