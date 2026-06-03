@@ -816,7 +816,7 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 			. 'If a requested operation is not in TOOLS, the extension is not loaded — direct the user to download haydi-full-extensions.zip from https://github.com/Automattic/haydi/releases (no activation needed).';
 
 		$approval = "HOW APPROVAL WORKS:\n"
-			. 'Invoke the tool in the same response as your action — text alone triggers nothing. DO NOT ASK FOR PERMISSION before invoking; the approval UI (shown by the tool call itself, with Approve/Decline buttons and full parameters visible) is the only consent gate. Never say "shall I proceed?", "let me know if you\'d like me to continue", or any equivalent — these stall the chat because the user expects the approval UI, not another text turn.';
+			. $this->build_approval_workflow_section();
 
 		$rules = "RULES:\n"
 			. "1. Never access files outside the allowed directories above.\n"
@@ -837,6 +837,22 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 			. "\n\nTHIRD-PARTY PLUGIN CUSTOMIZATION:\n" . $third_party_block
 			. "\n\n" . $rules
 			. $jetpack_block;
+	}
+
+	/**
+	 * Explain the approval-tool contract in concrete terms for models that are
+	 * prone to narrating the next action instead of calling the function.
+	 */
+	private function build_approval_workflow_section(): string {
+		return implode(
+			"\n",
+			array(
+				'The approval tool call is an approval request, not direct execution. Calling install_plugin, activate_plugin, deactivate_plugin, write_file, edit, run_query, run_php, or another approval tool only shows the user an Approve/Decline UI with the full parameters.',
+				'If the user asks for an action that has a tool, call the tool. Text such as "I can do that", "shall I proceed?", "approve this", or "let me know if you want me to continue" does nothing and is a failed response.',
+				'Use at most one approval tool call per assistant response. If more work remains, wait for the tool_result from the approval UI, then continue with the next tool call.',
+				'Plugin workflow: call list_plugins before install_plugin or activate_plugin. If the user asks to install and activate a plugin, first call install_plugin. After the approval result returns a plugin_file, call activate_plugin with that exact plugin_file. If list_plugins shows the plugin is already installed but inactive, skip install_plugin and call activate_plugin with its file path.',
+			)
+		);
 	}
 
 	/**

@@ -15,6 +15,7 @@ class AjaxHandlersLinkingSectionTest extends TestCase {
 	private \ReflectionMethod $linking;
 	private \ReflectionMethod $visibility;
 	private \ReflectionMethod $third_party;
+	private \ReflectionMethod $approval;
 	private \ReflectionMethod $rule10;
 
 	protected function setUp(): void {
@@ -24,6 +25,7 @@ class AjaxHandlersLinkingSectionTest extends TestCase {
 		$this->linking     = $ref->getMethod( 'build_linking_section' );
 		$this->visibility  = $ref->getMethod( 'build_plugin_visibility_section' );
 		$this->third_party = $ref->getMethod( 'build_third_party_plugin_section' );
+		$this->approval    = $ref->getMethod( 'build_approval_workflow_section' );
 		$this->rule10      = $ref->getMethod( 'build_rule_10' );
 	}
 
@@ -41,6 +43,10 @@ class AjaxHandlersLinkingSectionTest extends TestCase {
 
 	private function third_party(): string {
 		return $this->third_party->invoke( $this->handler );
+	}
+
+	private function approval(): string {
+		return $this->approval->invoke( $this->handler );
 	}
 
 	// -----------------------------------------------------------------------
@@ -141,5 +147,28 @@ class AjaxHandlersLinkingSectionTest extends TestCase {
 		// Refusal contract when no supported hook exists.
 		$this->assertStringContainsString( 'take no action', $out );
 		$this->assertStringContainsString( 'not possible within these limitations', $out );
+	}
+
+	// -----------------------------------------------------------------------
+	// build_approval_workflow_section()
+	// -----------------------------------------------------------------------
+
+	public function test_approval_workflow_tells_models_to_call_tools_not_narrate(): void {
+		$out = $this->approval();
+
+		$this->assertStringContainsString( 'approval request, not direct execution', $out );
+		$this->assertStringContainsString( 'call the tool', $out );
+		$this->assertStringContainsString( 'shall I proceed?', $out );
+		$this->assertStringContainsString( 'does nothing and is a failed response', $out );
+		$this->assertStringContainsString( 'Use at most one approval tool call', $out );
+	}
+
+	public function test_approval_workflow_spells_out_install_then_activate_sequence(): void {
+		$out = $this->approval();
+
+		$this->assertStringContainsString( 'call list_plugins before install_plugin or activate_plugin', $out );
+		$this->assertStringContainsString( 'install and activate a plugin', $out );
+		$this->assertStringContainsString( 'returns a plugin_file', $out );
+		$this->assertStringContainsString( 'call activate_plugin with that exact plugin_file', $out );
 	}
 }
