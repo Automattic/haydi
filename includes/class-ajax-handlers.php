@@ -827,7 +827,7 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 			. "6. Do not reveal any API keys, secrets, or credentials you may encounter in files.\n"
 			. '7. ' . $rule_10;
 
-		return 'You are a WordPress assistant running inside WP-Admin. Mutating actions require human approval.'
+		$prompt = 'You are a WordPress assistant running inside WP-Admin. Mutating actions require human approval.'
 			. "\n\nALLOWED DIRECTORIES (for file operations only):\n" . $list
 			. "\n\n" . $tools
 			. $missing_block
@@ -837,6 +837,18 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 			. "\n\nTHIRD-PARTY PLUGIN CUSTOMIZATION:\n" . $third_party_block
 			. "\n\n" . $rules
 			. $jetpack_block;
+
+		return (string) apply_filters(
+			'haydi_system_prompt',
+			$prompt,
+			array(
+				'allowed_roots'       => $roots,
+				'extension_proposals' => $ext_proposals,
+				'can_edit_plugins'    => $can_edit_plugins,
+				'can_edit_themes'     => $can_edit_themes,
+				'db_prefix'           => $db_prefix,
+			)
+		);
 	}
 
 	/**
@@ -944,6 +956,21 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 	 * returns a string ready to feed back to the AI as a tool_result.
 	 */
 	private function execute_read_tool( string $name, array $input ): string {
+		$filtered = apply_filters( 'haydi_execute_read_tool', null, $name, $input );
+		if ( null !== $filtered ) {
+			if ( is_wp_error( $filtered ) ) {
+				return 'Error: ' . $filtered->get_error_message();
+			}
+
+			if ( is_string( $filtered ) ) {
+				return $filtered;
+			}
+
+			$encoded = wp_json_encode( $filtered );
+
+			return false !== $encoded ? $encoded : 'Error: Tool result could not be encoded.';
+		}
+
 		switch ( $name ) {
 			case 'list_files':
 				return $this->file_tool->list_files_for_ai( $input['path'] ?? '' );
