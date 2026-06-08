@@ -14,7 +14,7 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      - uses: shivammathur/setup-php@v2
+      - uses: shivammathur/setup-php@7c071dfe9dc99bdf297fa79cb49ea005b9fcadbc # 2.37.1
         with:
           php-version: '8.2'
           tools: composer
@@ -22,7 +22,7 @@ jobs:
 
       - run: npm ci --no-audit --no-fund
 
-      - uses: ramsey/composer-install@v3
+      - uses: ramsey/composer-install@a8d0d959dab41457692a5e2041bd9b757a119e3f # 3.2.1
 
       - run: npm run lint
 
@@ -36,7 +36,7 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      - uses: shivammathur/setup-php@v2
+      - uses: shivammathur/setup-php@7c071dfe9dc99bdf297fa79cb49ea005b9fcadbc # 2.37.1
         with:
           php-version: '8.2'
           tools: composer
@@ -44,7 +44,7 @@ jobs:
 
       - run: npm ci --no-audit --no-fund
 
-      - uses: ramsey/composer-install@v3
+      - uses: ramsey/composer-install@a8d0d959dab41457692a5e2041bd9b757a119e3f # 3.2.1
 
       - name: Cache Playwright browsers
         id: playwright-cache
