@@ -869,11 +869,7 @@ class Haydi_AI_Client {
 	 */
 	private function get_function_declarations(): array {
 		$declarations = array();
-		$all_schemas  = array_merge(
-			apply_filters( 'haydi_tool_schemas', self::TOOL_SCHEMAS ),
-			apply_filters( 'haydi_action_tool_schemas', array() )
-		);
-		foreach ( $all_schemas as $name => $spec ) {
+		foreach ( apply_filters( 'haydi_tool_schemas', self::TOOL_SCHEMAS ) as $name => $spec ) {
 			$properties = array();
 			$required   = array();
 			foreach ( $spec['fields'] as $field => $field_spec ) {

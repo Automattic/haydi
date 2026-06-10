@@ -956,18 +956,18 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 	 * returns a string ready to feed back to the AI as a tool_result.
 	 */
 	private function execute_read_tool( string $name, array $input ): string {
-		foreach ( array( 'haydi_execute_read_tool', 'haydi_execute_action_tool' ) as $hook ) {
-			$filtered = apply_filters( $hook, null, $name, $input );
-			if ( null === $filtered ) {
-				continue;
-			}
+		$filtered = apply_filters( 'haydi_execute_read_tool', null, $name, $input );
+		if ( null !== $filtered ) {
 			if ( is_wp_error( $filtered ) ) {
 				return 'Error: ' . $filtered->get_error_message();
 			}
+
 			if ( is_string( $filtered ) ) {
 				return $filtered;
 			}
+
 			$encoded = wp_json_encode( $filtered );
+
 			return false !== $encoded ? $encoded : 'Error: Tool result could not be encoded.';
 		}
 
