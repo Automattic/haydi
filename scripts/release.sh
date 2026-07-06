@@ -33,12 +33,16 @@ sed -i '' "s/^Stable tag: $CURRENT$/Stable tag: $VERSION/" readme.txt
 sed -i '' "s/'haydi_version' => '$CURRENT'/'haydi_version' => '$VERSION'/" includes/class-rest-api.php
 sed -i '' "s/'version' => '$CURRENT'/'version' => '$VERSION'/" includes/class-rest-api.php
 
-# Prepend changelog entry (after the == Changelog == heading)
+# Prepend changelog entry (after the == Changelog == heading).
+# Use literal newlines in sed's `a\` continuation — bash does not convert
+# \n inside double-quoted strings, so this writes real line breaks rather
+# than the literal characters "\n" / "n" (which is what BSD sed produces
+# when given a string like "= 1.0.1 =\n* Released ...\n").
 TODAY=$(date +%Y-%m-%d)
-ENTRY="= $VERSION =\n* Released $TODAY.\n"
 sed -i '' "/^== Changelog ==$/a\\
-\\
-$ENTRY" readme.txt
+= $VERSION =\\
+* Released $TODAY.\\
+" readme.txt
 
 echo "Running dist build..."
 npm run dist
