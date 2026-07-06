@@ -3,7 +3,7 @@ Contributors: automattic, bor0, raicem
 Tags: ai, automation, assistant, site-management, mcp
 Requires at least: 7.0
 Tested up to: 7.0
-Stable tag: 1.0.0
+Stable tag: 1.0.1
 Requires PHP: 8.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -153,6 +153,9 @@ If you opt in to usage analytics, anonymised event data (actions taken, errors e
 No WordPress-bundled libraries (jQuery, Backbone, lodash, etc.) are duplicated by this plugin.
 
 == Changelog ==
+
+= 1.0.1 =
+* Released 2026-07-06.
 
 = 1.0.0 =
 * Initial release.
