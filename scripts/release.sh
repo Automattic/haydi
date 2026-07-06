@@ -29,6 +29,10 @@ sed -i '' "s/Version:           $CURRENT/Version:           $VERSION/" haydi.php
 # Update readme.txt Stable tag
 sed -i '' "s/^Stable tag: $CURRENT$/Stable tag: $VERSION/" readme.txt
 
+# Update REST endpoint version strings (status + MCP serverInfo)
+sed -i '' "s/'haydi_version' => '$CURRENT'/'haydi_version' => '$VERSION'/" includes/class-rest-api.php
+sed -i '' "s/'version' => '$CURRENT'/'version' => '$VERSION'/" includes/class-rest-api.php
+
 # Prepend changelog entry (after the == Changelog == heading)
 TODAY=$(date +%Y-%m-%d)
 ENTRY="= $VERSION =\n* Released $TODAY.\n"
@@ -40,7 +44,7 @@ echo "Running dist build..."
 npm run dist
 
 echo "Committing version bump..."
-git add haydi.php readme.txt LICENSE
+git add haydi.php readme.txt LICENSE includes/class-rest-api.php scripts/release.sh
 git commit -m "Bump version to $VERSION"
 
 echo "Creating tag v$VERSION..."
