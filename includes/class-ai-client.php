@@ -857,10 +857,6 @@ class Haydi_AI_Client {
 				),
 			),
 		),
-		'list_extensions'   => array(
-			'description' => 'List currently loaded Haydi extensions. Call this when a user asks about write, SQL, or PHP capabilities, or when you need to explain why a requested tool is unavailable.',
-			'fields'      => array(),
-		),
 	);
 
 	/**

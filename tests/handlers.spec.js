@@ -683,7 +683,7 @@ test.describe('Haydi_Ajax_Handlers', () => {
         test('GET /status — returns site_url and haydi_version', async () => {
             const res = await rest('GET', '/status', { token: apiToken });
             expect(res).toHaveProperty('site_url');
-            expect(res.haydi_version).toBe('1.0.0');
+            expect(res.haydi_version).toBe('1.0.1');
         });
 
         test('GET /files — returns files array for plugins dir', async () => {
@@ -730,11 +730,15 @@ test.describe('Haydi_Ajax_Handlers', () => {
             expect(res).toHaveProperty('result');
         });
 
-        test('MCP tools/list — contains haydi_list_files and haydi_list_plugins', async () => {
+        test('MCP tools/list — contains the complete built-in toolset', async () => {
             const res   = await mcp({ jsonrpc: '2.0', method: 'tools/list', id: 3 }, apiToken);
             const names = res.result.tools.map(t => t.name);
             expect(names).toContain('haydi_list_files');
             expect(names).toContain('haydi_list_plugins');
+            expect(names).toContain('haydi_write_file');
+            expect(names).toContain('haydi_run_query');
+            expect(names).toContain('haydi_run_php');
+            expect(names).not.toContain('haydi_list_extensions');
         });
 
         test('MCP tools/call haydi_list_plugins — returns text content with plugins array', async () => {
@@ -782,6 +786,9 @@ test.describe('Haydi_Ajax_Handlers', () => {
             const text = res.result.contents[0].text;
             expect(text).toContain('# Haydi');
             expect(text).toContain('haydi_get_allowed_roots');
+            expect(text).toContain('**SQL**');
+            expect(text).toContain('**PHP**');
+            expect(text).not.toContain('haydi_list_extensions');
         });
 
         test('MCP resources/read — unknown URI returns error', async () => {

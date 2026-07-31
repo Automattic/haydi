@@ -3,8 +3,7 @@
  * File read tool — exposes list_files, read_file, search_files, list_backups,
  * and the haydi_read_file AJAX endpoint (used by the inline file viewer in chat).
  *
- * Write operations live in extensions/haydi-files.php and are loaded only when
- * that extension is present.
+ * Approval-gated mutations live in class-file-actions.php.
  */
 
 defined( 'ABSPATH' ) || exit;

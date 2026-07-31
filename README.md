@@ -49,9 +49,9 @@ Generate an API token under **Advanced settings** in the Haydi sidebar (Tools �
 }
 ```
 
-Claude Code can then use all Haydi tools (`haydi_list_files`, `haydi_list_posts`, `haydi_run_query`, etc.) as MCP tools — no browser needed. Write tools (`haydi_write_file`, `haydi_edit_file`, `haydi_run_php`, etc.) are available when the corresponding extensions are installed (see **Extensions** below).
+Claude Code can then use all Haydi tools (`haydi_list_files`, `haydi_list_posts`, `haydi_write_file`, `haydi_run_query`, etc.) as MCP tools — no browser needed.
 
-The same token also works against the REST API directly: `GET /wp-json/haydi/v1/files`, `GET /wp-json/haydi/v1/file`, etc. Write operations execute immediately when authenticated via token (the token is the approval gate) and require the relevant extension to be installed.
+The same token also works against the REST API directly: `GET /wp-json/haydi/v1/files`, `GET /wp-json/haydi/v1/file`, etc. Write operations execute immediately when authenticated via token; the token is the approval gate.
 
 `GET /wp-json/haydi/v1/status` returns site info plus an `allowed_roots` array — the same paths exposed by the `haydi_get_allowed_roots` MCP tool — so clients can discover valid write targets without guessing.
 
@@ -84,7 +84,7 @@ Everything that mutates the filesystem, database, or plugin state always pauses 
 
 ## Tools
 
-### Core (always available)
+### Built-in tools
 
 | Tool | Auto? | What it does |
 |---|---|---|
@@ -101,32 +101,15 @@ Everything that mutates the filesystem, database, or plugin state always pauses 
 | `install_plugin(slug, reason)` | **No** | Proposes installing a plugin from WordPress.org by slug. |
 | `activate_plugin(plugin, reason)` | **No** | Proposes activating an installed plugin by file path. |
 | `deactivate_plugin(plugin, reason)` | **No** | Proposes deactivating an active plugin. |
-
-### Extensions (install separately — see below)
-
-| Tool | Extension | Auto? | What it does |
-|---|---|---|---|
-| `write_file(path, content, reason)` | `haydi-files.php` | **No** | Proposes a file write. You see the full content before applying. |
-| `edit(filePath, oldString, newString, replaceAll, reason)` | `haydi-files.php` | **No** | Proposes an exact-string edit to an existing file. `oldString` must match once unless `replaceAll` is true. |
-| `delete_file(path, reason)` | `haydi-files.php` | **No** | Proposes deleting a file. A backup is created automatically. |
-| `move_file(src, dest, reason)` | `haydi-files.php` | **No** | Proposes moving/renaming a file. Source is backed up first. |
-| `copy_file(src, dest, reason)` | `haydi-files.php` | **No** | Proposes copying a file. Destination is backed up if it already exists. |
-| `delete_dir(path, reason)` | `haydi-files.php` | **No** | Proposes recursively deleting a directory. All files are backed up first. Root directories cannot be deleted. |
-| `restore_backup(backup_file, original_path, reason)` | `haydi-files.php` | **No** | Proposes restoring a file from a specific backup. Use `list_backups` first to find the backup filename. A new backup of the current file is created before restoring. |
-| `run_query(sql, reason)` | `haydi-db.php` | **No** | Proposes SQL via `$wpdb`. You see the full query before it runs. |
-| `run_php(code, reason)` | `haydi-php.php` | **No** | Proposes executing a PHP snippet in the WordPress context. Output is captured and returned. |
-
----
-
-## Extensions
-
-The core plugin is read-only (plus plugin management) so it can be distributed through WordPress.org. Write and execute capabilities are provided by extension files that you drop into `wp-content/plugins/haydi/extensions/` via SFTP — no activation step needed, Haydi auto-loads any `.php` file placed there.
-
-**Option A — Download the full bundle from GitHub releases** (`haydi-full-extensions.zip`): all three extension files are pre-bundled alongside the core plugin.
-
-**Option B — Install extensions individually**: download `haydi-files.php`, `haydi-db.php`, and/or `haydi-php.php` from the [GitHub releases page](https://github.com/Automattic/haydi/releases) and upload only the ones you need.
-
-See `extensions/README.md` (inside the plugin folder) for details.
+| `write_file(path, content, reason)` | **No** | Proposes a file write. You see the full content before applying. |
+| `edit(filePath, oldString, newString, replaceAll, reason)` | **No** | Proposes an exact-string edit to an existing file. `oldString` must match once unless `replaceAll` is true. |
+| `delete_file(path, reason)` | **No** | Proposes deleting a file. A backup is created automatically. |
+| `move_file(src, dest, reason)` | **No** | Proposes moving/renaming a file. Source is backed up first. |
+| `copy_file(src, dest, reason)` | **No** | Proposes copying a file. Destination is backed up if it already exists. |
+| `delete_dir(path, reason)` | **No** | Proposes recursively deleting a directory. All files are backed up first. Root directories cannot be deleted. |
+| `restore_backup(backup_file, original_path, reason)` | **No** | Proposes restoring a file from a specific backup. Use `list_backups` first to find the backup filename. A new backup of the current file is created before restoring. |
+| `run_query(sql, reason)` | **No** | Proposes SQL via `$wpdb`. You see the full query before it runs. |
+| `run_php(code, reason)` | **No** | Proposes executing a PHP snippet in the WordPress context. Output is captured and returned. |
 
 ---
 

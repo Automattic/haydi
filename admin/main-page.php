@@ -96,25 +96,25 @@ $tracks_enabled     = (bool) get_option( 'haydi_enable_tracks', false );
 				</span>
 			</div>
 			<div class="wpc-panel__body">
-				<!-- Extension proposal (hidden until an extension action is proposed) -->
-				<div id="wpc-extension-section" class="wpc-hidden">
+				<!-- Built-in action proposal (hidden until an action is proposed) -->
+				<div id="wpc-action-section" class="wpc-hidden">
 					<div class="wpc-proposal-header">
 						<span class="dashicons dashicons-admin-tools"></span>
-						<strong id="wpc-extension-label"></strong>
+						<strong id="wpc-action-label"></strong>
 					</div>
-					<p id="wpc-extension-reason" class="wpc-proposal-reason"></p>
+					<p id="wpc-action-reason" class="wpc-proposal-reason"></p>
 					<details class="wpc-technical-details">
 						<summary><?php esc_html_e( 'Technical details', 'haydi' ); ?></summary>
-						<pre id="wpc-extension-payload" class="wpc-diff wpc-diff--after" style="max-height:200px;"></pre>
+						<pre id="wpc-action-payload" class="wpc-diff wpc-diff--after" style="max-height:200px;"></pre>
 					</details>
 					<div class="wpc-proposal-actions">
-						<button id="wpc-btn-confirm-extension" class="button button-primary">
+						<button id="wpc-btn-confirm-action" class="button button-primary">
 							<?php esc_html_e( 'Approve', 'haydi' ); ?>
 						</button>
-						<button id="wpc-btn-cancel-extension" class="button">
+						<button id="wpc-btn-cancel-action" class="button">
 							<?php esc_html_e( 'Decline', 'haydi' ); ?>
 						</button>
-						<span id="wpc-extension-status" class="wpc-apply-status"></span>
+						<span id="wpc-action-status" class="wpc-apply-status"></span>
 					</div>
 				</div>
 
@@ -183,9 +183,11 @@ $tracks_enabled     = (bool) get_option( 'haydi_enable_tracks', false );
 		$_capabilities = apply_filters(
 			'haydi_greeting_capabilities',
 			array(
-				'📂 ' . __( 'Browsing, reading, and searching plugin/theme files', 'haydi' ),
+				'📂 ' . __( 'Browsing, reading, editing, moving, or deleting plugin/theme files', 'haydi' ),
 				'🔌 ' . __( 'Installing, activating, or deactivating plugins', 'haydi' ),
 				'📋 ' . __( 'Listing posts, users, and site options', 'haydi' ),
+				'🗄️ ' . __( 'Reviewing or updating site data via SQL', 'haydi' ),
+				'⚙️ ' . __( 'Executing PHP snippets in the WordPress context', 'haydi' ),
 				'🌐 ' . __( 'Fetching public web pages for reference (docs, examples)', 'haydi' ),
 				'🔍 ' . __( 'Inspecting your site\'s setup', 'haydi' ),
 			)
@@ -196,13 +198,13 @@ $tracks_enabled     = (bool) get_option( 'haydi_enable_tracks', false );
 		$_footer = apply_filters(
 			'haydi_greeting_footer',
 			sprintf(
-				/* translators: %s: link to GitHub releases */
-				__( 'Write, SQL, and PHP tools are available as extensions — ask me what\'s installed, or grab them from the <a href="%s" target="_blank">releases page</a>.', 'haydi' ),
-				'https://github.com/Automattic/haydi/releases'
+				/* translators: %s: link to WordPress Studio */
+				__( 'For fast prototyping only — review AI output carefully. Consider <a href="%s" target="_blank" class="wpc-track-studio">WordPress Studio</a> for a more reliable solution.', 'haydi' ),
+				'https://developer.wordpress.com/studio/'
 			)
 		);
 
-		$_question = apply_filters( 'haydi_greeting_question', __( 'What would you like to explore today?', 'haydi' ) );
+		$_question = apply_filters( 'haydi_greeting_question', __( 'What would you like to work on today?', 'haydi' ) );
 		?>
 		<div class="wpc-panel wpc-panel--chat">
 			<div class="wpc-chat-messages" id="wpc-chat-messages">

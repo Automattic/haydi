@@ -1,16 +1,15 @@
 <?php
 /**
- * Haydi PHP Extension — run_php.
- * Install: drop into wp-content/plugins/haydi/extensions/
+ * Built-in PHP execution tool.
  */
 
 defined( 'ABSPATH' ) || exit;
 
-if ( ! function_exists( 'haydi_register_proposal' ) || ! class_exists( 'Haydi_Audit_Logger' ) ) {
+if ( ! function_exists( 'haydi_register_action_proposal' ) || ! class_exists( 'Haydi_Audit_Logger' ) ) {
 	return;
 }
 
-haydi_register_proposal(
+haydi_register_action_proposal(
 	'run_php',
 	array(
 		'label'            => 'Run PHP',
@@ -20,65 +19,6 @@ haydi_register_proposal(
 		'log_path_field'   => '',
 		'tool_description' => 'run_php(code, reason) — execute a PHP snippet in the WordPress context; opens an approval UI for the user; output is captured',
 	)
-);
-
-add_filter(
-	'haydi_greeting_capabilities',
-	static function ( array $caps ): array {
-		$caps[] = '⚙️ ' . __( 'Executing PHP snippets in the WordPress context', 'haydi' );
-		return $caps;
-	}
-);
-
-add_filter(
-	'haydi_greeting_footer',
-	static fn() => sprintf(
-		/* translators: %s: link to WordPress Studio */
-		__( 'For fast prototyping only — review AI output carefully. Consider <a href="%s" target="_blank" class="wpc-track-studio">WordPress Studio</a> for a more reliable solution.', 'haydi' ),
-		'https://developer.wordpress.com/studio/'
-	)
-);
-
-add_filter( 'haydi_greeting_question', static fn() => __( 'What would you like to work on today?', 'haydi' ) );
-
-add_filter(
-	'haydi_suggestion_pool',
-	static function ( array $pool ): array {
-		$pool['php'] = array(
-			__( 'Create a draft About page I can edit', 'haydi' ),
-			__( 'Fix broken links or pages after recent changes', 'haydi' ),
-		);
-		return $pool;
-	}
-);
-
-add_filter( 'haydi_suggestion_hint', static fn() => __( 'Try one of these to see what I can do:', 'haydi' ) );
-
-add_filter(
-	'haydi_known_extensions',
-	static function ( array $exts ): array {
-		$exts[] = array(
-			'extension' => 'haydi-php.php',
-			'provides'  => 'run_php',
-		);
-		return $exts;
-	}
-);
-
-add_filter(
-	'haydi_agents_tool_groups',
-	static function ( array $groups ): array {
-		$groups['php'] = '**PHP** — execute snippets in the live WordPress context; output is captured and returned';
-		return $groups;
-	}
-);
-
-add_filter(
-	'haydi_agents_safety_rules',
-	static function ( array $rules ): array {
-		$rules[] = 'PHP runs in the live site context — test defensively and keep snippets focused.';
-		return $rules;
-	}
 );
 
 add_filter(
@@ -114,7 +54,7 @@ add_filter(
 			// phpcs:ignore WordPress.Security.NonceVerification.Missing
 			$reason = isset( $_POST['reason'] ) ? sanitize_text_field( wp_unslash( $_POST['reason'] ) ) : '';
 
-			$result = haydi_php_ext_execute( $code, $reason, $logger, $health );
+			$result = haydi_php_execute( $code, $reason, $logger, $health );
 			if ( is_wp_error( $result ) ) {
 				$data   = $result->get_error_data();
 				$output = is_array( $data ) && isset( $data['output'] ) ? $data['output'] : '';
@@ -165,7 +105,7 @@ add_filter(
 			if ( null !== $result || 'haydi_run_php' !== $name ) {
 				return $result;
 			}
-			$r = haydi_php_ext_execute(
+			$r = haydi_php_execute(
 				trim( (string) ( $args['code'] ?? '' ) ),
 				(string) ( $args['reason'] ?? '' ),
 				$logger,
@@ -193,7 +133,7 @@ add_filter(
 					'methods'             => 'POST',
 					'callback'            => static function ( WP_REST_Request $r ) use ( $logger, $health ) {
 						$body   = $r->get_json_params();
-						$result = haydi_php_ext_execute(
+						$result = haydi_php_execute(
 							trim( (string) ( $body['code'] ?? '' ) ),
 							(string) ( $body['reason'] ?? '' ),
 							$logger,
@@ -220,7 +160,7 @@ add_filter(
 	);
 } )();
 
-function haydi_php_ext_execute( string $code, string $reason, Haydi_Audit_Logger $logger, Haydi_Health_Check $health ): array|WP_Error {
+function haydi_php_execute( string $code, string $reason, Haydi_Audit_Logger $logger, Haydi_Health_Check $health ): array|WP_Error {
 	if ( '' === trim( $code ) ) {
 		return new WP_Error( 'missing_param', 'code is required.', array( 'status' => 400 ) );
 	}
@@ -231,7 +171,7 @@ function haydi_php_ext_execute( string $code, string $reason, Haydi_Audit_Logger
 	$exec_error = null;
 	$tmp        = null;
 	try {
-		if ( haydi_php_ext_eval_available() ) {
+		if ( haydi_php_eval_available() ) {
 			// phpcs:ignore Squiz.PHP.Eval.Discouraged, Generic.PHP.ForbiddenFunctions.Found -- intentional: human-approved PHP execution
 			eval( $code ); // nosemgrep.
 		} else {
@@ -281,7 +221,7 @@ function haydi_php_ext_execute( string $code, string $reason, Haydi_Audit_Logger
 	);
 }
 
-function haydi_php_ext_eval_available(): bool {
+function haydi_php_eval_available(): bool {
 	static $cached = null;
 	if ( null !== $cached ) {
 		return $cached;

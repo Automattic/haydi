@@ -2,7 +2,7 @@
 /**
  * Issue #12 — UI integration test for the orphan tool_use scenario.
  *
- * Repro from the bug report: AI proposes a run_query (an extension tool), the
+ * Repro from the bug report: AI proposes a run_query action, the
  * user types a new instruction instead of clicking Approve / Decline, and the
  * next chat request 400s with "tool_use ids were found without tool_result
  * blocks immediately after".
@@ -140,7 +140,7 @@ test.describe('Chat — pending proposal handling', () => {
         await setupPage(page);
 
         // Intercept the chat endpoint so we can drive the chat
-        // without an AI provider.  First call → returns a pending_extension.
+        // without an AI provider.  First call → returns a pending_action.
         // Second call → captures the messages array and ends the turn.
         let chatCalls   = 0;
         let secondMsgs  = null;
@@ -166,7 +166,7 @@ test.describe('Chat — pending proposal handling', () => {
                 return fulfillChat(route, action, {
                     text:     'I will list categories first.',
                     messages: echoed,
-                    pending_extension: {
+                    pending_action: {
                         tool_use_id:  TOOL_USE_ID,
                         tool_name:    'run_query',
                         label:        'Run SQL Query',
@@ -190,7 +190,7 @@ test.describe('Chat — pending proposal handling', () => {
         // First user message — triggers the proposal.
         await page.fill('#wpc-chat-input', 'install woocommerce please');
         await page.click('#wpc-btn-send');
-        await expect(page.locator('#wpc-extension-section')).toBeVisible();
+        await expect(page.locator('#wpc-action-section')).toBeVisible();
         await expect(page.locator('.wpc-panel--chat > #wpc-editor-panel + .wpc-chat-input-wrap')).toBeVisible();
 
         const proposalBox = await page.locator('#wpc-editor-panel').boundingBox();
@@ -207,7 +207,7 @@ test.describe('Chat — pending proposal handling', () => {
         await expect.poll(() => chatCalls, { timeout: 5_000 }).toBeGreaterThanOrEqual(2);
 
         // The proposal panel must be hidden — sendMessage clears it.
-        await expect(page.locator('#wpc-extension-section')).toBeHidden();
+        await expect(page.locator('#wpc-action-section')).toBeHidden();
 
         // The captured payload's last user message must carry a tool_result
         // matching the previous turn's tool_use id, and the new text.
@@ -265,7 +265,7 @@ test.describe('Chat — pending proposal handling', () => {
                     return fulfillChat(route, action, {
                         text:     'Running PHP.',
                         messages: echoed,
-                        pending_extension: {
+                        pending_action: {
                             tool_use_id:  TOOL_USE_ID,
                             tool_name:    'run_php',
                             label:        'Run PHP',
@@ -301,15 +301,15 @@ test.describe('Chat — pending proposal handling', () => {
 
         await page.fill('#wpc-chat-input', 'run some php');
         await page.click('#wpc-btn-send');
-        await expect(page.locator('#wpc-extension-section')).toBeVisible();
+        await expect(page.locator('#wpc-action-section')).toBeVisible();
 
-        await page.click('#wpc-btn-confirm-extension');
+        await page.click('#wpc-btn-confirm-action');
 
         // The error must appear in the chat transcript so the user can see it.
         await expect(page.locator('.wpc-message--error').filter({ hasText: 'PHP error' })).toBeVisible({ timeout: 5_000 });
 
         // The proposal panel is hidden after the error is surfaced.
-        await expect(page.locator('#wpc-extension-section')).toBeHidden();
+        await expect(page.locator('#wpc-action-section')).toBeHidden();
 
         // A second chat request must have fired.
         await expect.poll(() => chatCalls, { timeout: 5_000 }).toBeGreaterThanOrEqual(2);
@@ -354,7 +354,7 @@ test.describe('Chat — pending proposal handling', () => {
                     return fulfillChat(route, action, {
                         text:     '',
                         messages: echoed,
-                        pending_extension: {
+                        pending_action: {
                             tool_use_id:  TOOL_USE_ID,
                             tool_name:    'run_query',
                             label:        'Run SQL Query',
@@ -392,10 +392,10 @@ test.describe('Chat — pending proposal handling', () => {
         // Trigger the proposal.
         await page.fill('#wpc-chat-input', 'do a query');
         await page.click('#wpc-btn-send');
-        await expect(page.locator('#wpc-extension-section')).toBeVisible();
+        await expect(page.locator('#wpc-action-section')).toBeVisible();
 
         // Approve — but the route holds the response, so the AJAX is mid-flight.
-        await page.click('#wpc-btn-confirm-extension');
+        await page.click('#wpc-btn-confirm-action');
         await expect.poll(() => executeQueryHit).toBe(1);
 
         // While the approval is mid-flight, type a message and click Send.

@@ -2050,13 +2050,13 @@
     // -------------------------------------------------------------------------
 
     var PROPOSALS = {
-        extension: {
-            kind:         'extension',
-            responseKey:  'pending_extension',
-            sectionId:    'wpc-extension-section',
-            confirmBtnId: 'wpc-btn-confirm-extension',
-            cancelBtnId:  'wpc-btn-cancel-extension',
-            statusId:     'wpc-extension-status',
+        action: {
+            kind:         'action',
+            responseKey:  'pending_action',
+            sectionId:    'wpc-action-section',
+            confirmBtnId: 'wpc-btn-confirm-action',
+            cancelBtnId:  'wpc-btn-cancel-action',
+            statusId:     'wpc-action-status',
             label:        'action',
             getAjaxAction: function (p) { return p.ajax_action || ''; },
             buildPayload: function (p) {
@@ -2065,14 +2065,14 @@
                 return out;
             },
             show: function (p) {
-                $('#wpc-extension-label').text(p.label || 'Action');
-                $('#wpc-extension-reason').text(p.reason || '(no reason given)');
-                $('#wpc-extension-section').removeClass('wpc-hidden');
-                $('#wpc-extension-status').text('').removeClass('is-error');
+                $('#wpc-action-label').text(p.label || 'Action');
+                $('#wpc-action-reason').text(p.reason || '(no reason given)');
+                $('#wpc-action-section').removeClass('wpc-hidden');
+                $('#wpc-action-status').text('').removeClass('is-error');
                 syncEditorPanelVisibility();
                 scrollChatToBottom();
 
-                var $payload = $('#wpc-extension-payload');
+                var $payload = $('#wpc-action-payload');
 
                 if (p.tool_name === 'write_file' && p.path) {
                     $payload.html('<span class="wpc-dl wpc-dl-ctx"> Loading…\n</span>');
@@ -2088,7 +2088,7 @@
                         }
                         var edit = applyExactEdit(res.data.content, p.oldString || '', p.newString || '', isReplaceAll(p.replaceAll));
                         if (!edit.ok) {
-                            $('#wpc-extension-status').text(edit.error).addClass('is-error');
+                            $('#wpc-action-status').text(edit.error).addClass('is-error');
                             $payload.html(renderUnifiedDiff(res.data.content, res.data.content));
                             return;
                         }

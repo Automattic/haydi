@@ -1,17 +1,16 @@
 <?php
 /**
- * Haydi Files Extension — write_file, edit, delete_file, move_file, copy_file, delete_dir, restore_backup.
- * Install: drop into wp-content/plugins/haydi/extensions/
+ * Built-in file mutation tools — write, edit, delete, move, copy, and restore.
  */
 
 defined( 'ABSPATH' ) || exit;
 
-if ( ! function_exists( 'haydi_register_proposal' ) || ! class_exists( 'Haydi_Filesystem_Guard' ) ) {
+if ( ! function_exists( 'haydi_register_action_proposal' ) || ! class_exists( 'Haydi_Filesystem_Guard' ) ) {
 	return;
 }
 
-// Register proposals.
-haydi_register_proposal(
+// Register approval-gated actions.
+haydi_register_action_proposal(
 	'write_file',
 	array(
 		'label'            => 'Write File',
@@ -22,7 +21,7 @@ haydi_register_proposal(
 		'tool_description' => 'write_file(path, content, reason) — write a file; opens an approval UI for the user',
 	)
 );
-haydi_register_proposal(
+haydi_register_action_proposal(
 	'edit',
 	array(
 		'label'            => 'Edit File',
@@ -33,7 +32,7 @@ haydi_register_proposal(
 		'tool_description' => 'edit(filePath, oldString, newString, replaceAll, reason) — exact-string edit of an existing file; opens an approval UI for the user',
 	)
 );
-haydi_register_proposal(
+haydi_register_action_proposal(
 	'delete_file',
 	array(
 		'label'            => 'Delete File',
@@ -44,7 +43,7 @@ haydi_register_proposal(
 		'tool_description' => 'delete_file(path, reason) — delete a file; opens an approval UI for the user; a backup is created automatically',
 	)
 );
-haydi_register_proposal(
+haydi_register_action_proposal(
 	'move_file',
 	array(
 		'label'            => 'Move File',
@@ -55,7 +54,7 @@ haydi_register_proposal(
 		'tool_description' => 'move_file(src, dest, reason) — move or rename a file; opens an approval UI for the user; a backup of src is created automatically',
 	)
 );
-haydi_register_proposal(
+haydi_register_action_proposal(
 	'copy_file',
 	array(
 		'label'            => 'Copy File',
@@ -66,7 +65,7 @@ haydi_register_proposal(
 		'tool_description' => 'copy_file(src, dest, reason) — copy a file; opens an approval UI for the user; dest is backed up if it already exists',
 	)
 );
-haydi_register_proposal(
+haydi_register_action_proposal(
 	'delete_dir',
 	array(
 		'label'            => 'Delete Directory',
@@ -77,7 +76,7 @@ haydi_register_proposal(
 		'tool_description' => 'delete_dir(path, reason) — recursively delete a directory; opens an approval UI for the user; all files are backed up; root directories cannot be deleted',
 	)
 );
-haydi_register_proposal(
+haydi_register_action_proposal(
 	'restore_backup',
 	array(
 		'label'            => 'Restore Backup',
@@ -87,67 +86,6 @@ haydi_register_proposal(
 		'log_path_field'   => 'original_path',
 		'tool_description' => 'restore_backup(backup_file, original_path, reason) — restore a file from a specific backup; opens an approval UI for the user; call list_backups first to get the backup_file name',
 	)
-);
-
-// -------------------------------------------------------------------------
-// Greeting / chip / agents filters
-// -------------------------------------------------------------------------
-
-add_filter(
-	'haydi_greeting_capabilities',
-	static function ( array $caps ): array {
-		return array_map( static fn( $c ) => str_starts_with( $c, '📂' ) ? '📂 ' . __( 'Browsing, reading, editing, moving, or deleting plugin/theme files', 'haydi' ) : $c, $caps );
-	}
-);
-add_filter( 'haydi_greeting_footer', static fn() => sprintf( __( 'For fast prototyping only — review AI output carefully. Consider <a href="%s" target="_blank" class="wpc-track-studio">WordPress Studio</a> for a more reliable solution.', 'haydi' ), 'https://developer.wordpress.com/studio/' ) ); // phpcs:ignore WordPress.WP.I18n.MissingTranslatorsComment
-add_filter( 'haydi_greeting_question', static fn() => __( 'What would you like to work on today?', 'haydi' ) );
-add_filter(
-	'haydi_suggestion_pool',
-	static function ( array $pool ): array {
-		$backup_dir = WP_CONTENT_DIR . '/uploads/haydi-backups';
-		$bak_files  = glob( $backup_dir . '/*.bak' );
-		$chips      = array( __( 'Add testimonials to my homepage', 'haydi' ), __( 'Add the current year to my site footer', 'haydi' ), __( 'Check my theme for risky code and explain what you find', 'haydi' ), __( 'Add a simple feedback slider to a page', 'haydi' ) );
-		if ( is_dir( $backup_dir ) && ! empty( $bak_files ) ) {
-			$chips[] = __( 'Show me what backups are available and help me restore one', 'haydi' );
-		}
-		$pool['file']       = $chips;
-		$pool['extensions'] = null;
-		return array_filter( $pool );
-	}
-);
-add_filter( 'haydi_suggestion_hint', static fn() => __( 'Try one of these to see what I can do:', 'haydi' ) );
-add_filter(
-	'haydi_known_extensions',
-	static function ( array $exts ): array {
-		$exts[] = array(
-			'extension' => 'haydi-files.php',
-			'provides'  => 'write_file, edit, delete_file, move_file, copy_file, delete_dir, restore_backup',
-		);
-		return $exts;
-	}
-);
-add_filter(
-	'haydi_agents_tool_groups',
-	static function ( array $groups ): array {
-		$groups['file'] = '**File ops** — read, write, edit, search, move, copy, delete, restore backups';
-		return $groups;
-	}
-);
-add_filter(
-	'haydi_agents_safety_rules',
-	static function ( array $rules ): array {
-		$rules[] = 'Prefer `haydi_edit_file` (exact-string substitution) over a full `haydi_write_file` rewrite.';
-		$rules[] = 'Before deleting anything, call `haydi_list_backups` so you know what is recoverable.';
-		return $rules;
-	}
-);
-add_filter(
-	'haydi_agents_workflows',
-	static function ( array $blocks ): array {
-		$blocks[] = "**Edit a theme or plugin file**\n1. \`haydi_list_files\` — browse to locate the file\n2. \`haydi_read_file\` — read current contents\n3. \`haydi_edit_file\` — replace only the section that needs changing";
-		$blocks[] = "**Recover from a mistake**\n1. \`haydi_list_backups\` — find the backup entry for the affected path\n2. \`haydi_restore_backup\` — restore it using the backup file name";
-		return $blocks;
-	}
 );
 
 // -------------------------------------------------------------------------
@@ -279,7 +217,7 @@ add_filter(
 			$path = $post_param( 'path' );
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- nonce verified; content validated by guard
 			$content = isset( $_POST['content'] ) ? wp_unslash( $_POST['content'] ) : '';
-			$result  = haydi_files_ext_execute_write( $path, $content, '', $guard, $health, $logger );
+			$result  = haydi_file_execute_write( $path, $content, '', $guard, $health, $logger );
 			if ( is_wp_error( $result ) ) {
 				wp_send_json_error( array( 'message' => $result->get_error_message() ) );
 				return; }
@@ -299,7 +237,7 @@ add_filter(
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing
 			$replace_all = isset( $_POST['replaceAll'] ) ? filter_var( wp_unslash( $_POST['replaceAll'] ), FILTER_VALIDATE_BOOLEAN ) : false;
 			$reason      = $post_param( 'reason' );
-			$result      = haydi_files_ext_execute_edit( $file_path, $old_string, $new_string, $replace_all, $reason, $guard, $health, $logger );
+			$result      = haydi_file_execute_edit( $file_path, $old_string, $new_string, $replace_all, $reason, $guard, $health, $logger );
 			if ( is_wp_error( $result ) ) {
 				wp_send_json_error( array( 'message' => $result->get_error_message() ) );
 				return; }
@@ -311,7 +249,7 @@ add_filter(
 		'wp_ajax_haydi_delete_file',
 		static function () use ( $verify, $require_param, $guard, $health, $logger ) {
 			$verify();
-			$result = haydi_files_ext_execute_delete( $require_param( 'path' ), 'Human-initiated deletion.', $guard, $health, $logger );
+			$result = haydi_file_execute_delete( $require_param( 'path' ), 'Human-initiated deletion.', $guard, $health, $logger );
 			if ( is_wp_error( $result ) ) {
 				wp_send_json_error( array( 'message' => $result->get_error_message() ) );
 				return; }
@@ -323,7 +261,7 @@ add_filter(
 		'wp_ajax_haydi_move_file',
 		static function () use ( $verify, $require_param, $post_param, $guard, $health, $logger ) {
 			$verify();
-			$result = haydi_files_ext_execute_move( $require_param( 'src' ), $require_param( 'dest' ), $post_param( 'reason' ), $guard, $health, $logger );
+			$result = haydi_file_execute_move( $require_param( 'src' ), $require_param( 'dest' ), $post_param( 'reason' ), $guard, $health, $logger );
 			if ( is_wp_error( $result ) ) {
 				wp_send_json_error( array( 'message' => $result->get_error_message() ) );
 				return; }
@@ -335,7 +273,7 @@ add_filter(
 		'wp_ajax_haydi_copy_file',
 		static function () use ( $verify, $require_param, $post_param, $guard, $health, $logger ) {
 			$verify();
-			$result = haydi_files_ext_execute_copy( $require_param( 'src' ), $require_param( 'dest' ), $post_param( 'reason' ), $guard, $health, $logger );
+			$result = haydi_file_execute_copy( $require_param( 'src' ), $require_param( 'dest' ), $post_param( 'reason' ), $guard, $health, $logger );
 			if ( is_wp_error( $result ) ) {
 				wp_send_json_error( array( 'message' => $result->get_error_message() ) );
 				return; }
@@ -348,7 +286,7 @@ add_filter(
 		static function () use ( $verify, $require_param, $post_param, $guard, $health, $logger ) {
 			$verify();
 			$reason = $post_param( 'reason' );
-			$result = haydi_files_ext_execute_delete_dir( $require_param( 'path' ), '' !== $reason ? $reason : 'Human-initiated directory deletion.', $guard, $health, $logger );
+			$result = haydi_file_execute_delete_dir( $require_param( 'path' ), '' !== $reason ? $reason : 'Human-initiated directory deletion.', $guard, $health, $logger );
 			if ( is_wp_error( $result ) ) {
 				wp_send_json_error( array( 'message' => $result->get_error_message() ) );
 				return; }
@@ -360,7 +298,7 @@ add_filter(
 		'wp_ajax_haydi_restore_backup',
 		static function () use ( $verify, $require_param, $guard, $health, $logger ) {
 			$verify();
-			$result = haydi_files_ext_execute_restore_backup( $require_param( 'backup_file' ), $require_param( 'original_path' ), '', $guard, $health, $logger );
+			$result = haydi_file_execute_restore_backup( $require_param( 'backup_file' ), $require_param( 'original_path' ), '', $guard, $health, $logger );
 			if ( is_wp_error( $result ) ) {
 				wp_send_json_error( array( 'message' => $result->get_error_message() ) );
 				return; }
@@ -543,27 +481,27 @@ add_filter(
 				return $result; }
 			switch ( $name ) {
 				case 'haydi_write_file':
-					$r = haydi_files_ext_execute_write( (string) ( $args['path'] ?? '' ), (string) ( $args['content'] ?? '' ), (string) ( $args['reason'] ?? '' ), $guard, $health, $logger );
+					$r = haydi_file_execute_write( (string) ( $args['path'] ?? '' ), (string) ( $args['content'] ?? '' ), (string) ( $args['reason'] ?? '' ), $guard, $health, $logger );
 					return is_wp_error( $r ) ? $r : "File written successfully: {$r['path']}";
 				case 'haydi_edit_file':
-					$r = haydi_files_ext_execute_edit( (string) ( $args['path'] ?? '' ), (string) ( $args['old_string'] ?? '' ), (string) ( $args['new_string'] ?? '' ), (bool) ( $args['replace_all'] ?? false ), (string) ( $args['reason'] ?? '' ), $guard, $health, $logger );
+					$r = haydi_file_execute_edit( (string) ( $args['path'] ?? '' ), (string) ( $args['old_string'] ?? '' ), (string) ( $args['new_string'] ?? '' ), (bool) ( $args['replace_all'] ?? false ), (string) ( $args['reason'] ?? '' ), $guard, $health, $logger );
 					return is_wp_error( $r ) ? $r : "File edited successfully ({$r['matches']} match(es)): {$r['path']}";
 				case 'haydi_delete_file':
 					$reason = (string) ( $args['reason'] ?? '' );
-					$r      = haydi_files_ext_execute_delete( (string) ( $args['path'] ?? '' ), '' !== $reason ? $reason : 'MCP-initiated deletion.', $guard, $health, $logger );
+					$r      = haydi_file_execute_delete( (string) ( $args['path'] ?? '' ), '' !== $reason ? $reason : 'MCP-initiated deletion.', $guard, $health, $logger );
 					return is_wp_error( $r ) ? $r : "File deleted successfully: {$r['path']}";
 				case 'haydi_move_file':
-					$r = haydi_files_ext_execute_move( (string) ( $args['src'] ?? '' ), (string) ( $args['dest'] ?? '' ), (string) ( $args['reason'] ?? '' ), $guard, $health, $logger );
+					$r = haydi_file_execute_move( (string) ( $args['src'] ?? '' ), (string) ( $args['dest'] ?? '' ), (string) ( $args['reason'] ?? '' ), $guard, $health, $logger );
 					return is_wp_error( $r ) ? $r : "File moved: {$r['src']} → {$r['dest']}";
 				case 'haydi_copy_file':
-					$r = haydi_files_ext_execute_copy( (string) ( $args['src'] ?? '' ), (string) ( $args['dest'] ?? '' ), (string) ( $args['reason'] ?? '' ), $guard, $health, $logger );
+					$r = haydi_file_execute_copy( (string) ( $args['src'] ?? '' ), (string) ( $args['dest'] ?? '' ), (string) ( $args['reason'] ?? '' ), $guard, $health, $logger );
 					return is_wp_error( $r ) ? $r : "File copied: {$r['src']} → {$r['dest']}";
 				case 'haydi_delete_directory':
 					$reason = (string) ( $args['reason'] ?? '' );
-					$r      = haydi_files_ext_execute_delete_dir( (string) ( $args['path'] ?? '' ), '' !== $reason ? $reason : 'MCP-initiated directory deletion.', $guard, $health, $logger );
+					$r      = haydi_file_execute_delete_dir( (string) ( $args['path'] ?? '' ), '' !== $reason ? $reason : 'MCP-initiated directory deletion.', $guard, $health, $logger );
 					return is_wp_error( $r ) ? $r : "Directory deleted: {$r['path']}";
 				case 'haydi_restore_backup':
-					$r = haydi_files_ext_execute_restore_backup( (string) ( $args['backup_file'] ?? '' ), (string) ( $args['original_path'] ?? '' ), (string) ( $args['reason'] ?? '' ), $guard, $health, $logger );
+					$r = haydi_file_execute_restore_backup( (string) ( $args['backup_file'] ?? '' ), (string) ( $args['original_path'] ?? '' ), (string) ( $args['reason'] ?? '' ), $guard, $health, $logger );
 					return is_wp_error( $r ) ? $r : "Backup restored: {$r['backup_file']} → {$r['original_path']}";
 			}
 			return null;
@@ -595,21 +533,21 @@ add_filter(
 						'permission_callback' => $perm,
 						'callback'            => static function ( WP_REST_Request $r ) use ( $wrap, $guard, $health, $logger ) {
 									$b = $r->get_json_params();
-									return $wrap( haydi_files_ext_execute_write( (string) ( $b['path'] ?? '' ), (string) ( $b['content'] ?? '' ), (string) ( $b['reason'] ?? '' ), $guard, $health, $logger ) ); },
+									return $wrap( haydi_file_execute_write( (string) ( $b['path'] ?? '' ), (string) ( $b['content'] ?? '' ), (string) ( $b['reason'] ?? '' ), $guard, $health, $logger ) ); },
 					),
 					array(
 						'methods'             => 'PATCH',
 						'permission_callback' => $perm,
 						'callback'            => static function ( WP_REST_Request $r ) use ( $wrap, $guard, $health, $logger ) {
 								$b = $r->get_json_params();
-								return $wrap( haydi_files_ext_execute_edit( (string) ( $b['path'] ?? '' ), (string) ( $b['old_string'] ?? '' ), (string) ( $b['new_string'] ?? '' ), (bool) ( $b['replace_all'] ?? false ), (string) ( $b['reason'] ?? '' ), $guard, $health, $logger ) ); },
+								return $wrap( haydi_file_execute_edit( (string) ( $b['path'] ?? '' ), (string) ( $b['old_string'] ?? '' ), (string) ( $b['new_string'] ?? '' ), (bool) ( $b['replace_all'] ?? false ), (string) ( $b['reason'] ?? '' ), $guard, $health, $logger ) ); },
 					),
 					array(
 						'methods'             => 'DELETE',
 						'permission_callback' => $perm,
 						'callback'            => static function ( WP_REST_Request $r ) use ( $wrap, $guard, $health, $logger ) {
 								$reason = (string) ( $r->get_param( 'reason' ) ?? '' );
-								return $wrap( haydi_files_ext_execute_delete( (string) ( $r->get_param( 'path' ) ?? '' ), '' !== $reason ? $reason : 'API-initiated deletion.', $guard, $health, $logger ) ); },
+								return $wrap( haydi_file_execute_delete( (string) ( $r->get_param( 'path' ) ?? '' ), '' !== $reason ? $reason : 'API-initiated deletion.', $guard, $health, $logger ) ); },
 					),
 				)
 			);
@@ -621,7 +559,7 @@ add_filter(
 					'permission_callback' => $perm,
 					'callback'            => static function ( WP_REST_Request $r ) use ( $wrap, $guard, $health, $logger ) {
 						$b = $r->get_json_params();
-						return $wrap( haydi_files_ext_execute_restore_backup( (string) ( $b['backup_file'] ?? '' ), (string) ( $b['original_path'] ?? '' ), (string) ( $b['reason'] ?? '' ), $guard, $health, $logger ) );
+						return $wrap( haydi_file_execute_restore_backup( (string) ( $b['backup_file'] ?? '' ), (string) ( $b['original_path'] ?? '' ), (string) ( $b['reason'] ?? '' ), $guard, $health, $logger ) );
 					},
 				)
 			);
@@ -633,7 +571,7 @@ add_filter(
 					'permission_callback' => $perm,
 					'callback'            => static function ( WP_REST_Request $r ) use ( $wrap, $guard, $health, $logger ) {
 						$b = $r->get_json_params();
-						return $wrap( haydi_files_ext_execute_move( (string) ( $b['src'] ?? '' ), (string) ( $b['dest'] ?? '' ), (string) ( $b['reason'] ?? '' ), $guard, $health, $logger ) );
+						return $wrap( haydi_file_execute_move( (string) ( $b['src'] ?? '' ), (string) ( $b['dest'] ?? '' ), (string) ( $b['reason'] ?? '' ), $guard, $health, $logger ) );
 					},
 				)
 			);
@@ -645,7 +583,7 @@ add_filter(
 					'permission_callback' => $perm,
 					'callback'            => static function ( WP_REST_Request $r ) use ( $wrap, $guard, $health, $logger ) {
 						$b = $r->get_json_params();
-						return $wrap( haydi_files_ext_execute_copy( (string) ( $b['src'] ?? '' ), (string) ( $b['dest'] ?? '' ), (string) ( $b['reason'] ?? '' ), $guard, $health, $logger ) );
+						return $wrap( haydi_file_execute_copy( (string) ( $b['src'] ?? '' ), (string) ( $b['dest'] ?? '' ), (string) ( $b['reason'] ?? '' ), $guard, $health, $logger ) );
 					},
 				)
 			);
@@ -657,7 +595,7 @@ add_filter(
 					'permission_callback' => $perm,
 					'callback'            => static function ( WP_REST_Request $r ) use ( $wrap, $guard, $health, $logger ) {
 						$reason = (string) ( $r->get_param( 'reason' ) ?? '' );
-						return $wrap( haydi_files_ext_execute_delete_dir( (string) ( $r->get_param( 'path' ) ?? '' ), '' !== $reason ? $reason : 'API-initiated directory deletion.', $guard, $health, $logger ) );
+						return $wrap( haydi_file_execute_delete_dir( (string) ( $r->get_param( 'path' ) ?? '' ), '' !== $reason ? $reason : 'API-initiated directory deletion.', $guard, $health, $logger ) );
 					},
 				)
 			);
@@ -670,7 +608,7 @@ add_filter(
 // -------------------------------------------------------------------------
 
 /** Write a file; validates PHP syntax before writing; runs health check for .php files. */
-function haydi_files_ext_execute_write( string $path, string $content, string $reason, Haydi_Filesystem_Guard $guard, Haydi_Health_Check $health, Haydi_Audit_Logger $logger ): array|WP_Error {
+function haydi_file_execute_write( string $path, string $content, string $reason, Haydi_Filesystem_Guard $guard, Haydi_Health_Check $health, Haydi_Audit_Logger $logger ): array|WP_Error {
 	if ( '' === $path ) {
 		return new WP_Error( 'missing_param', 'path is required.', array( 'status' => 400 ) ); }
 	if ( str_ends_with( $path, '.php' ) ) {
@@ -694,7 +632,7 @@ function haydi_files_ext_execute_write( string $path, string $content, string $r
 }
 
 /** Apply an exact-string edit to an existing file; validates PHP syntax; runs health check. */
-function haydi_files_ext_execute_edit( string $file_path, string $old_string, string $new_string, bool $replace_all, string $reason, Haydi_Filesystem_Guard $guard, Haydi_Health_Check $health, Haydi_Audit_Logger $logger ): array|WP_Error {
+function haydi_file_execute_edit( string $file_path, string $old_string, string $new_string, bool $replace_all, string $reason, Haydi_Filesystem_Guard $guard, Haydi_Health_Check $health, Haydi_Audit_Logger $logger ): array|WP_Error {
 	if ( '' === $file_path ) {
 		return new WP_Error( 'missing_param', 'filePath is required.', array( 'status' => 400 ) ); }
 	$prepared = $guard->prepare_edit_file( $file_path, $old_string, $new_string, $replace_all );
@@ -722,7 +660,7 @@ function haydi_files_ext_execute_edit( string $file_path, string $old_string, st
 }
 
 /** Delete a file; auto-restores from backup on health failure. */
-function haydi_files_ext_execute_delete( string $path, string $reason, Haydi_Filesystem_Guard $guard, Haydi_Health_Check $health, Haydi_Audit_Logger $logger ): array|WP_Error {
+function haydi_file_execute_delete( string $path, string $reason, Haydi_Filesystem_Guard $guard, Haydi_Health_Check $health, Haydi_Audit_Logger $logger ): array|WP_Error {
 	if ( '' === $path ) {
 		return new WP_Error( 'missing_param', 'path is required.', array( 'status' => 400 ) ); }
 	$result = $guard->delete_file( $path );
@@ -739,7 +677,7 @@ function haydi_files_ext_execute_delete( string $path, string $reason, Haydi_Fil
 }
 
 /** Move a file; on health failure, undoes both sides of the rename. */
-function haydi_files_ext_execute_move( string $src, string $dest, string $reason, Haydi_Filesystem_Guard $guard, Haydi_Health_Check $health, Haydi_Audit_Logger $logger ): array|WP_Error {
+function haydi_file_execute_move( string $src, string $dest, string $reason, Haydi_Filesystem_Guard $guard, Haydi_Health_Check $health, Haydi_Audit_Logger $logger ): array|WP_Error {
 	if ( '' === $src || '' === $dest ) {
 		return new WP_Error( 'missing_param', 'src and dest are required.', array( 'status' => 400 ) ); }
 	$result = $guard->move_file( $src, $dest );
@@ -765,7 +703,7 @@ function haydi_files_ext_execute_move( string $src, string $dest, string $reason
 }
 
 /** Copy a file; on health failure, restores the destination. */
-function haydi_files_ext_execute_copy( string $src, string $dest, string $reason, Haydi_Filesystem_Guard $guard, Haydi_Health_Check $health, Haydi_Audit_Logger $logger ): array|WP_Error {
+function haydi_file_execute_copy( string $src, string $dest, string $reason, Haydi_Filesystem_Guard $guard, Haydi_Health_Check $health, Haydi_Audit_Logger $logger ): array|WP_Error {
 	if ( '' === $src || '' === $dest ) {
 		return new WP_Error( 'missing_param', 'src and dest are required.', array( 'status' => 400 ) ); }
 	$result = $guard->copy_file( $src, $dest );
@@ -783,7 +721,7 @@ function haydi_files_ext_execute_copy( string $src, string $dest, string $reason
 }
 
 /** Recursively delete a directory; detect-only health check (no automatic revert). */
-function haydi_files_ext_execute_delete_dir( string $path, string $reason, Haydi_Filesystem_Guard $guard, Haydi_Health_Check $health, Haydi_Audit_Logger $logger ): array|WP_Error {
+function haydi_file_execute_delete_dir( string $path, string $reason, Haydi_Filesystem_Guard $guard, Haydi_Health_Check $health, Haydi_Audit_Logger $logger ): array|WP_Error {
 	if ( '' === $path ) {
 		return new WP_Error( 'missing_param', 'path is required.', array( 'status' => 400 ) ); }
 	$result = $guard->delete_dir( $path );
@@ -800,7 +738,7 @@ function haydi_files_ext_execute_delete_dir( string $path, string $reason, Haydi
 }
 
 /** Restore a specific backup; creates a pre-restore backup; runs health check. */
-function haydi_files_ext_execute_restore_backup( string $backup_file, string $original_path, string $reason, Haydi_Filesystem_Guard $guard, Haydi_Health_Check $health, Haydi_Audit_Logger $logger ): array|WP_Error {
+function haydi_file_execute_restore_backup( string $backup_file, string $original_path, string $reason, Haydi_Filesystem_Guard $guard, Haydi_Health_Check $health, Haydi_Audit_Logger $logger ): array|WP_Error {
 	if ( '' === $backup_file || '' === $original_path ) {
 		return new WP_Error( 'missing_param', 'backup_file and original_path are required.', array( 'status' => 400 ) ); }
 	$result = $guard->restore_specific_backup( $original_path, $backup_file );

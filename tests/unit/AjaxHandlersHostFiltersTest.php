@@ -1,13 +1,13 @@
 <?php
 /**
- * Unit tests for extension hooks used by host-specific Haydi integrations.
+ * Unit tests for hooks used by host-specific Haydi integrations.
  */
 
 use PHPUnit\Framework\TestCase;
 use Brain\Monkey;
 use Brain\Monkey\Functions;
 
-class AjaxHandlersExtensionFiltersTest extends TestCase {
+class AjaxHandlersHostFiltersTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
@@ -57,7 +57,7 @@ class AjaxHandlersExtensionFiltersTest extends TestCase {
 		$this->assertStringContainsString( '## Custom Host Context', $prompt );
 		$this->assertIsArray( $seen_context );
 		$this->assertArrayHasKey( 'allowed_roots', $seen_context );
-		$this->assertArrayHasKey( 'extension_proposals', $seen_context );
+		$this->assertArrayHasKey( 'action_proposals', $seen_context );
 		$this->assertTrue( $seen_context['can_edit_plugins'] );
 		$this->assertTrue( $seen_context['can_edit_themes'] );
 		$this->assertSame( 'wp_', $seen_context['db_prefix'] );

@@ -5,7 +5,7 @@
  *   Haydi_Plugin_Tool::handle_install_plugin
  *   Haydi_Plugin_Tool::handle_activate_plugin
  *   Haydi_Plugin_Tool::handle_deactivate_plugin
- *   haydi_php_ext_execute() (extensions/haydi-php.php)
+ *   haydi_php_execute() (includes/tools/class-php-tool.php)
  *
  * WordPress functions are stubbed via Brain\Monkey so no live WordPress is needed.
  */
@@ -94,11 +94,11 @@ class AjaxHandlersPluginActionsTest extends TestCase {
 		}
 	}
 
-	/** Call haydi_php_ext_execute() directly and capture result. */
+	/** Call haydi_php_execute() directly and capture result. */
 	private function callPhp( string $code, string $reason = 'test' ): void {
 		$this->lastSuccess = null;
 		$this->lastData    = null;
-		$result            = haydi_php_ext_execute( $code, $reason, $this->mockLogger, $this->health );
+		$result            = haydi_php_execute( $code, $reason, $this->mockLogger, $this->health );
 		if ( is_wp_error( $result ) ) {
 			$data              = $result->get_error_data();
 			$this->lastSuccess = false;
@@ -186,7 +186,7 @@ class AjaxHandlersPluginActionsTest extends TestCase {
 	}
 
 	// =======================================================================
-	// haydi_php_ext_execute()
+	// haydi_php_execute()
 	// =======================================================================
 
 	public function test_run_php_rejects_empty_code(): void {

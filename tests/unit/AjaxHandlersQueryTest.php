@@ -1,6 +1,6 @@
 <?php
 /**
- * Unit tests for haydi_db_ext_execute_query() — focused on the post-mutation
+ * Unit tests for haydi_query_execute() — focused on the post-mutation
  * health check: SELECT-style queries must skip it (no mutation, nothing to
  * verify), UPDATE-style queries must run it.
  */
@@ -57,7 +57,7 @@ class AjaxHandlersQueryTest extends TestCase {
 	private function callQuery( string $sql ): void {
 		$this->lastSuccess = null;
 		$this->lastData    = null;
-		$result            = haydi_db_ext_execute_query( $sql, 'test', $this->mockLogger, $this->health );
+		$result            = haydi_query_execute( $sql, 'test', $this->mockLogger, $this->health );
 		if ( is_wp_error( $result ) ) {
 			$this->lastSuccess = false;
 			$this->lastData    = array( 'message' => $result->get_error_message() );

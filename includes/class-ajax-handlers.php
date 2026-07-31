@@ -9,8 +9,8 @@
  *    and inline by handle_chat / handle_save_settings / handle_clear_log
  *    / handle_dismiss_jetpack_notice on this class).
  *  - All filesystem paths are re-validated by Haydi_Filesystem_Guard.
- *  - Extension-provided approval tools (file writes, SQL, PHP, …) are NEVER
- *    executed automatically; the loop pauses and surfaces a "pending_extension"
+ *  - Approval-gated tools (file writes, SQL, PHP, …) are NEVER executed
+ *    automatically; the loop pauses and surfaces a "pending_action"
  *    payload that the human must explicitly approve.
  *  - The agentic loop runs server-side so list_files / read_file / fetch_url
  *    / list_plugins results flow back to the AI without a browser round-trip.
@@ -133,8 +133,8 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 	 * Run the AI agentic loop server-side.
 	 *
 	 * Read tools (list_files / read_file / fetch_url / list_plugins) execute
-	 * automatically. Extension-provided approval tools stop the loop
-	 * and surface a pending_extension payload for human approval.
+	 * automatically. Approval-gated tools stop the loop and surface a
+	 * pending_action payload for human approval.
 	 */
 	public function handle_chat(): void {
 		$this->verify();
@@ -314,10 +314,10 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 				$tool_id   = $block['id'] ?? '';
 				$input     = $block['input'] ?? array();
 
-				$core_proposals  = self::APPROVAL_TOOLS;
-				$ext_proposals   = haydi_get_proposals();
-				$proposal_spec   = $core_proposals[ $tool_name ] ?? $ext_proposals[ $tool_name ] ?? null;
-				$is_ext_proposal = null !== $proposal_spec && ! isset( $core_proposals[ $tool_name ] );
+				$core_proposals     = self::APPROVAL_TOOLS;
+				$action_proposals   = haydi_get_action_proposals();
+				$proposal_spec      = $core_proposals[ $tool_name ] ?? $action_proposals[ $tool_name ] ?? null;
+				$is_action_proposal = null !== $proposal_spec && ! isset( $core_proposals[ $tool_name ] );
 
 				if ( null !== $proposal_spec ) {
 					$this->emit_chat_event(
@@ -352,8 +352,8 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 						: '';
 					$this->logger->log( $proposal_spec['log_action'], $log_path, $payload['reason'] ?? '' );
 
-					if ( $is_ext_proposal ) {
-						$pending_key             = 'pending_extension';
+					if ( $is_action_proposal ) {
+						$pending_key             = 'pending_action';
 						$payload['label']        = $proposal_spec['label'];
 						$payload['ajax_action']  = $proposal_spec['ajax_action'];
 						$payload['payload_keys'] = $proposal_spec['fields'];
@@ -789,7 +789,7 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 		$third_party_block = $this->build_third_party_plugin_section();
 		$rule_10           = $this->build_rule_10( $can_edit_plugins, $can_edit_themes );
 
-		$ext_proposals = haydi_get_proposals();
+		$action_proposals = haydi_get_action_proposals();
 
 		$tools = "TOOLS:\n"
 			. "- list_files(path) — browse directories\n"
@@ -801,19 +801,15 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 			. "- list_users(role?, limit?) — list users (default: 50 most recently registered)\n"
 			. "- list_options(search?) — autoloaded options when search is empty; otherwise filtered by option_name\n"
 			. "- list_backups(path?) — list file backups\n"
-			. "- list_extensions() — list currently loaded extensions\n"
 			. "- install_plugin(slug, reason) — install a plugin from WordPress.org\n"
 			. "- activate_plugin(plugin, reason) — activate an installed plugin\n"
 			. "- deactivate_plugin(plugin, reason) — deactivate an active plugin\n";
 
-		foreach ( $ext_proposals as $config ) {
+		foreach ( $action_proposals as $config ) {
 			if ( ! empty( $config['tool_description'] ) ) {
 				$tools .= '- ' . $config['tool_description'] . "\n";
 			}
 		}
-
-		$missing_block = "\n\nEXTENSION AWARENESS:\n"
-			. 'If a requested operation is not in TOOLS, the extension is not loaded — direct the user to download haydi-full-extensions.zip from https://github.com/Automattic/haydi/releases (no activation needed).';
 
 		$approval = "HOW APPROVAL WORKS:\n"
 			. $this->build_approval_workflow_section();
@@ -830,7 +826,6 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 		$prompt = 'You are a WordPress assistant running inside WP-Admin. Mutating actions require human approval.'
 			. "\n\nALLOWED DIRECTORIES (for file operations only):\n" . $list
 			. "\n\n" . $tools
-			. $missing_block
 			. "\n\n" . $approval
 			. "\n\nLINKING TO FILES:\n" . $linking_block
 			. "\n\nGENERATED PLUGIN VISIBILITY:\n" . $visibility_block
@@ -842,11 +837,11 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 			'haydi_system_prompt',
 			$prompt,
 			array(
-				'allowed_roots'       => $roots,
-				'extension_proposals' => $ext_proposals,
-				'can_edit_plugins'    => $can_edit_plugins,
-				'can_edit_themes'     => $can_edit_themes,
-				'db_prefix'           => $db_prefix,
+				'allowed_roots'    => $roots,
+				'action_proposals' => $action_proposals,
+				'can_edit_plugins' => $can_edit_plugins,
+				'can_edit_themes'  => $can_edit_themes,
+				'db_prefix'        => $db_prefix,
 			)
 		);
 	}
@@ -996,16 +991,9 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 				return $this->list_users_for_ai( $input['role'] ?? '', $input['limit'] ?? '' );
 			case 'list_options':
 				return $this->list_options_for_ai( $input['search'] ?? '' );
-			case 'list_extensions':
-				return $this->list_extensions_for_ai();
 			default:
 				return "Error: Unknown tool '{$name}'.";
 		}
-	}
-
-	private function list_extensions_for_ai(): string {
-		$this->logger->log( 'list_extensions', '' );
-		return wp_json_encode( apply_filters( 'haydi_known_extensions', array() ) );
 	}
 
 	private function list_posts_for_ai( string $status = '', string $type = '', string $limit = '' ): string {
@@ -1106,8 +1094,7 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 				'list_backups' => $result,
 				'list_posts'      => 'Listed ' . count( (array) json_decode( $result, true ) ) . ' posts.',
 				'list_users'      => 'Listed ' . count( (array) json_decode( $result, true ) ) . ' users.',
-				'list_options'    => 'Listed ' . count( (array) json_decode( $result, true ) ) . ' options.',
-				'list_extensions' => 'Listed extensions.',
+				'list_options' => 'Listed ' . count( (array) json_decode( $result, true ) ) . ' options.',
 				default        => 'Completed.',
 			};
 		}
@@ -1121,9 +1108,9 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 	}
 
 	private function tool_activity_label( string $name ): string {
-		$ext_proposals = haydi_get_proposals();
-		if ( isset( $ext_proposals[ $name ] ) ) {
-			return 'Prepared ' . strtolower( $ext_proposals[ $name ]['label'] );
+		$action_proposals = haydi_get_action_proposals();
+		if ( isset( $action_proposals[ $name ] ) ) {
+			return 'Prepared ' . strtolower( $action_proposals[ $name ]['label'] );
 		}
 		return match ( $name ) {
 			'list_files'        => 'Listed files',
@@ -1134,7 +1121,6 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 			'list_posts'        => 'Listed posts',
 			'list_users'        => 'Listed users',
 			'list_options'      => 'Listed options',
-			'list_extensions'   => 'Listed extensions',
 			'install_plugin'    => 'Prepared install',
 			'activate_plugin'   => 'Prepared activation',
 			'deactivate_plugin' => 'Prepared deactivation',
@@ -1156,9 +1142,8 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 			'list_plugins' => 'Installed plugin inventory',
 			'list_posts'   => 'Posts inventory',
 			'list_users'   => 'Users inventory',
-			'list_options'    => $input['search'] ? '"' . $this->truncate_activity_text( (string) $input['search'], 60 ) . '"' : 'Autoloaded options',
-			'list_backups'    => $input['path'] ? $this->display_path( (string) $input['path'] ) : 'All backups',
-			'list_extensions' => 'Extension inventory',
+			'list_options' => $input['search'] ? '"' . $this->truncate_activity_text( (string) $input['search'], 60 ) . '"' : 'Autoloaded options',
+			'list_backups' => $input['path'] ? $this->display_path( (string) $input['path'] ) : 'All backups',
 			default        => 'Running tool.',
 		};
 	}

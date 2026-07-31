@@ -1,11 +1,11 @@
 <?php
 /**
- * Unit tests for haydi_files_ext_execute_write() — specifically
+ * Unit tests for haydi_file_execute_write() — specifically
  * the post-write health check and auto-rollback logic.
  *
  * Strategy
  * --------
- * - Call haydi_files_ext_execute_write() directly with a mock FilesystemGuard
+ * - Call haydi_file_execute_write() directly with a mock FilesystemGuard
  *   and a real Haydi_Health_Check so the loopback path is exercised.
  * - Brain\Monkey stubs the WP HTTP functions used by the health check.
  * - The real php -l check still runs for PHP files: valid PHP content is used
@@ -49,7 +49,7 @@ class AjaxHandlersApplyWriteTest extends TestCase {
 	private function callApplyWrite( array $args ): void {
 		$this->lastSuccess = null;
 		$this->lastData    = null;
-		$result            = haydi_files_ext_execute_write(
+		$result            = haydi_file_execute_write(
 			$args['path'] ?? '',
 			$args['content'] ?? '',
 			'',
