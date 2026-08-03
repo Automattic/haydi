@@ -18,7 +18,7 @@ if ( ! defined( 'HAYDI_SHOW_TOOL_ACTIVITY' ) ) {
 	define( 'HAYDI_SHOW_TOOL_ACTIVITY', true );
 }
 
-// Global helpers (proposal registry, API auth) and per-tool classes.
+// Shared helpers, services, and built-in tool modules.
 require_once HAYDI_DIR . 'includes/functions.php';
 require_once HAYDI_DIR . 'includes/class-filesystem-guard.php';
 require_once HAYDI_DIR . 'includes/class-health-check.php';
@@ -34,13 +34,9 @@ require_once HAYDI_DIR . 'includes/class-chat-store.php';
 require_once HAYDI_DIR . 'includes/class-ajax-handlers.php';
 require_once HAYDI_DIR . 'includes/class-api-token-manager.php';
 require_once HAYDI_DIR . 'includes/class-rest-api.php';
-
-// Auto-load PHP files dropped into the extensions/ directory.
-$haydi_exts = glob( HAYDI_DIR . 'extensions/*.php' );
-foreach ( ( $haydi_exts ? $haydi_exts : array() ) as $haydi_ext ) {
-	require_once $haydi_ext;
-}
-unset( $haydi_exts, $haydi_ext );
+require_once HAYDI_DIR . 'includes/tools/class-file-actions.php';
+require_once HAYDI_DIR . 'includes/tools/class-query-tool.php';
+require_once HAYDI_DIR . 'includes/tools/class-php-tool.php';
 
 /**
  * Main plugin bootstrap class.
@@ -63,23 +59,33 @@ final class Haydi_Plugin {
 	 * that bucket's rotation.
 	 */
 	private static function get_suggestion_pool(): array {
+		$file_suggestions = array(
+			__( 'Add testimonials to my homepage', 'haydi' ),
+			__( 'Add the current year to my site footer', 'haydi' ),
+			__( 'Check my theme for risky code and explain what you find', 'haydi' ),
+			__( 'Add a simple feedback slider to a page', 'haydi' ),
+		);
+
+		$backup_dir = WP_CONTENT_DIR . '/uploads/haydi-backups';
+		$bak_files  = glob( $backup_dir . '/*.bak' );
+		if ( is_dir( $backup_dir ) && ! empty( $bak_files ) ) {
+			$file_suggestions[] = __( 'Show me what backups are available and help me restore one', 'haydi' );
+		}
+
 		$base = array(
-			'file'       => array(
-				__( 'Show me what plugins and themes are installed', 'haydi' ),
-				__( 'Search my theme files for any custom CSS', 'haydi' ),
-				__( 'Check my theme for risky code and explain what you find', 'haydi' ),
-			),
-			'db'         => array(
+			'file'   => $file_suggestions,
+			'db'     => array(
 				__( 'Show me which authors have published the most posts', 'haydi' ),
 				__( 'Show posts and pages updated in the last 7 days', 'haydi' ),
 			),
-			'plugin'     => array(
+			'plugin' => array(
 				__( 'Add a contact form to my site', 'haydi' ),
 				__( 'Add an events calendar to my site', 'haydi' ),
 				__( 'Turn on spam protection if it is available', 'haydi' ),
 			),
-			'extensions' => array(
-				__( 'What tools do you have? Show me which extensions are installed.', 'haydi' ),
+			'php'    => array(
+				__( 'Create a draft About page I can edit', 'haydi' ),
+				__( 'Fix broken links or pages after recent changes', 'haydi' ),
 			),
 		);
 

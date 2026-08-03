@@ -449,29 +449,33 @@ class Haydi_Rest_Api {
 	}
 
 	/**
-	 * Build the haydi://agents resource content dynamically based on which
-	 * extensions are currently loaded, so MCP clients only see tools that exist.
+	 * Build the haydi://agents resource content.
 	 */
 	private function build_agents_content(): string {
-		// Tool groups — keyed so extensions can replace core entries (e.g. upgrade
-		// 'file' from read-only to read+write) or add new ones.
+		// Tool groups are filterable by host-specific integrations.
 		$tool_groups = apply_filters(
 			'haydi_agents_tool_groups',
 			array(
-				'file'    => '**File ops** — read and search (install haydi-files.php to enable writes)',
+				'file'    => '**File ops** — read, write, edit, search, move, copy, delete, restore backups',
 				'content' => '**Content** — list posts, list users, list options',
 				'plugins' => '**Plugins** — list, install (from wordpress.org by slug), activate, deactivate',
+				'sql'     => '**SQL** — run queries via wpdb; SELECT/SHOW/DESCRIBE/EXPLAIN return rows, writes return affected-row count',
+				'php'     => '**PHP** — execute snippets in the live WordPress context; output is captured and returned',
 				'url'     => '**URL** — fetch public HTTP/HTTPS URLs; private/internal addresses are blocked',
 			)
 		);
 		$groups      = array_map( static fn( $g ) => '- ' . $g, array_values( $tool_groups ) );
 
-		// Safety rules — extensions append their own; auto-numbered by position.
+		// Safety rules are auto-numbered by position.
 		$rule_texts = apply_filters(
 			'haydi_agents_safety_rules',
 			array(
 				'Call `haydi_get_allowed_roots` before writing files to confirm a valid target path.',
+				'Prefer `haydi_edit_file` (exact-string substitution) over a full `haydi_write_file` rewrite.',
 				'Always supply a `reason` field on mutating calls — it appears in the audit log.',
+				'Before deleting anything, call `haydi_list_backups` so you know what is recoverable.',
+				'Never drop or truncate core WordPress tables via `haydi_run_query`.',
+				'PHP runs in the live site context — test defensively and keep snippets focused.',
 			)
 		);
 		$rules      = array_map(
@@ -480,7 +484,7 @@ class Haydi_Rest_Api {
 			array_values( $rule_texts )
 		);
 
-		// Workflows — extensions append complete workflow blocks (plain strings).
+		// Workflows are complete blocks so integrations can append their own.
 		$workflow_blocks = apply_filters(
 			'haydi_agents_workflows',
 			array(
@@ -491,6 +495,23 @@ class Haydi_Rest_Api {
 						'1. `haydi_install_plugin` (provide slug, e.g. `"woocommerce"`)',
 						'2. `haydi_list_plugins` — find the plugin file path in the results',
 						'3. `haydi_activate_plugin` (provide that file path)',
+					)
+				),
+				implode(
+					"\n",
+					array(
+						'**Edit a theme or plugin file**',
+						'1. `haydi_list_files` — browse to locate the file',
+						'2. `haydi_read_file` — read current contents',
+						'3. `haydi_edit_file` — replace only the section that needs changing',
+					)
+				),
+				implode(
+					"\n",
+					array(
+						'**Recover from a mistake**',
+						'1. `haydi_list_backups` — find the backup entry for the affected path',
+						'2. `haydi_restore_backup` — restore it using the backup file name',
 					)
 				),
 			)
@@ -756,15 +777,6 @@ class Haydi_Rest_Api {
 					'required'   => array( 'url' ),
 				),
 			),
-			// Extensions.
-			array(
-				'name'        => 'haydi_list_extensions',
-				'description' => 'List known Haydi extensions and whether each one is currently installed.',
-				'inputSchema' => array(
-					'type'       => 'object',
-					'properties' => new \stdClass(),
-				),
-			),
 		);
 
 		if ( ! $can_mod_plugins ) {
@@ -805,8 +817,6 @@ class Haydi_Rest_Api {
 				return $this->mcp_do_list_users( $args );
 			case 'haydi_list_options':
 				return $this->mcp_do_list_options( $args );
-			case 'haydi_list_extensions':
-				return $this->mcp_do_list_extensions();
 			case 'haydi_install_plugin':
 				return $this->mcp_do_install_plugin( $args );
 			case 'haydi_activate_plugin':
@@ -820,11 +830,6 @@ class Haydi_Rest_Api {
 				}
 				return new WP_Error( 'unknown_tool', "Unknown tool: {$name}" );
 		}
-	}
-
-	private function mcp_do_list_extensions(): string {
-		$this->logger->log( 'list_extensions', '' );
-		return wp_json_encode( apply_filters( 'haydi_known_extensions', array() ), JSON_PRETTY_PRINT );
 	}
 
 	private function mcp_do_list_posts( array $args ): string {

@@ -1,6 +1,6 @@
 <?php
 /**
- * Global helper functions used by both core and extensions.
+ * Global helper functions shared by Haydi tool modules.
  *
  * Kept in a separate file so haydi.php can contain only the plugin bootstrap
  * class (phpcs Universal.Files.SeparateFunctionsFromOO requires it).
@@ -8,26 +8,26 @@
 
 defined( 'ABSPATH' ) || exit;
 
-// Global proposal registry for extension tools.
-$GLOBALS['haydi_proposals'] = array();
+// Global registry for built-in actions that require human approval.
+$GLOBALS['haydi_action_proposals'] = array();
 
 /**
- * Register an extension-provided proposal tool.
+ * Register an approval-gated action tool.
  *
  * @param string $tool_name AI tool name (e.g. 'write_file').
  * @param array  $config    Label, fields, ajax_action, log_action, log_path_field, tool_description.
  */
-function haydi_register_proposal( string $tool_name, array $config ): void {
-	$GLOBALS['haydi_proposals'][ $tool_name ] = $config;
+function haydi_register_action_proposal( string $tool_name, array $config ): void {
+	$GLOBALS['haydi_action_proposals'][ $tool_name ] = $config;
 }
 
 /**
- * Return all registered extension proposals.
+ * Return all registered approval-gated actions.
  *
  * @return array<string, array>
  */
-function haydi_get_proposals(): array {
-	return $GLOBALS['haydi_proposals'] ?? array();
+function haydi_get_action_proposals(): array {
+	return $GLOBALS['haydi_action_proposals'] ?? array();
 }
 
 /**

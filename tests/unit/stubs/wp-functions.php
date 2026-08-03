@@ -13,7 +13,7 @@ if ( ! function_exists( 'wp_json_encode' ) ) {
     }
 }
 
-// Stubs so extension files can be loaded without a running WP environment.
+// Stubs so built-in tool modules can be loaded without a running WP environment.
 // Brain\Monkey overrides these per-test as needed.
 if ( ! function_exists( 'add_filter' ) ) {
     function add_filter( string $hook, callable $callback, int $priority = 10, int $accepted_args = 1 ): bool { // phpcs:ignore

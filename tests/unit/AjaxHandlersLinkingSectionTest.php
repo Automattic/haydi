@@ -139,7 +139,7 @@ class AjaxHandlersLinkingSectionTest extends TestCase {
 		$this->assertStringContainsString( 'filter hooks', $out );
 		$this->assertMatchesRegularExpression( '/never modify|do not (write|modify)/i', $out, 'Must explicitly forbid modifying third-party files.' );
 
-		// Extension-tool workarounds must be blocked.
+		// Tool workarounds must be blocked.
 		$this->assertStringContainsString( 'run_query', $out );
 		$this->assertStringContainsString( 'run_php', $out );
 		$this->assertStringContainsString( 'private internals', $out );

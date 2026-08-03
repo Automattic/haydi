@@ -127,7 +127,7 @@ require_once $plugin_root . '/includes/class-chat-store.php';
 require_once $plugin_root . '/includes/class-ajax-handlers.php';
 require_once $plugin_root . '/includes/class-api-token-manager.php';
 require_once $plugin_root . '/includes/class-rest-api.php';
-// Load extension files so tests that reference extension classes can find them.
-require_once $plugin_root . '/extensions/haydi-files.php';
-require_once $plugin_root . '/extensions/haydi-db.php';
-require_once $plugin_root . '/extensions/haydi-php.php';
+// Load built-in action modules.
+require_once $plugin_root . '/includes/tools/class-file-actions.php';
+require_once $plugin_root . '/includes/tools/class-query-tool.php';
+require_once $plugin_root . '/includes/tools/class-php-tool.php';

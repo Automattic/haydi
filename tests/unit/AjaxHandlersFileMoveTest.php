@@ -1,6 +1,6 @@
 <?php
 /**
- * Unit tests for haydi_files_ext_execute_move() — specifically
+ * Unit tests for haydi_file_execute_move() — specifically
  * the two-step undo (delete dest + restore src) when the post-move health
  * check fails. This is the only file mutator with non-trivial revert logic;
  * delete/copy reuse the same restore_latest_backup pathway already covered
@@ -47,7 +47,7 @@ class AjaxHandlersFileMoveTest extends TestCase {
 	private function callMove( string $src, string $dest ): void {
 		$this->lastSuccess = null;
 		$this->lastData    = null;
-		$result            = haydi_files_ext_execute_move(
+		$result            = haydi_file_execute_move(
 			$src,
 			$dest,
 			'test move',

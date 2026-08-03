@@ -1,16 +1,15 @@
 <?php
 /**
- * Haydi DB Extension — run_query.
- * Install: drop into wp-content/plugins/haydi/extensions/
+ * Built-in SQL query tool.
  */
 
 defined( 'ABSPATH' ) || exit;
 
-if ( ! function_exists( 'haydi_register_proposal' ) || ! class_exists( 'Haydi_Audit_Logger' ) ) {
+if ( ! function_exists( 'haydi_register_action_proposal' ) || ! class_exists( 'Haydi_Audit_Logger' ) ) {
 	return;
 }
 
-haydi_register_proposal(
+haydi_register_action_proposal(
 	'run_query',
 	array(
 		'label'            => 'Run SQL Query',
@@ -20,53 +19,6 @@ haydi_register_proposal(
 		'log_path_field'   => '',
 		'tool_description' => 'run_query(sql, reason) — run a SQL query via wpdb; opens an approval UI for the user',
 	)
-);
-
-add_filter(
-	'haydi_greeting_capabilities',
-	static function ( array $caps ): array {
-		$caps[] = '🗄️ ' . __( 'Reviewing or updating site data via SQL', 'haydi' );
-		return $caps;
-	}
-);
-
-add_filter(
-	'haydi_greeting_footer',
-	static fn() => sprintf(
-		/* translators: %s: link to WordPress Studio */
-		__( 'For fast prototyping only — review AI output carefully. Consider <a href="%s" target="_blank" class="wpc-track-studio">WordPress Studio</a> for a more reliable solution.', 'haydi' ),
-		'https://developer.wordpress.com/studio/'
-	)
-);
-
-add_filter( 'haydi_greeting_question', static fn() => __( 'What would you like to work on today?', 'haydi' ) );
-add_filter( 'haydi_suggestion_hint', static fn() => __( 'Try one of these to see what I can do:', 'haydi' ) );
-
-add_filter(
-	'haydi_known_extensions',
-	static function ( array $exts ): array {
-		$exts[] = array(
-			'extension' => 'haydi-db.php',
-			'provides'  => 'run_query',
-		);
-		return $exts;
-	}
-);
-
-add_filter(
-	'haydi_agents_tool_groups',
-	static function ( array $groups ): array {
-		$groups['sql'] = '**SQL** — run queries via wpdb; SELECT/SHOW/DESCRIBE/EXPLAIN return rows, writes return affected-row count';
-		return $groups;
-	}
-);
-
-add_filter(
-	'haydi_agents_safety_rules',
-	static function ( array $rules ): array {
-		$rules[] = 'Never drop or truncate core WordPress tables via `haydi_run_query`.';
-		return $rules;
-	}
 );
 
 add_filter(
@@ -102,7 +54,7 @@ add_filter(
 			// phpcs:ignore WordPress.Security.NonceVerification.Missing
 			$reason = isset( $_POST['reason'] ) ? sanitize_text_field( wp_unslash( $_POST['reason'] ) ) : '';
 
-			$result = haydi_db_ext_execute_query( $sql, $reason, $logger, $health );
+			$result = haydi_query_execute( $sql, $reason, $logger, $health );
 			if ( is_wp_error( $result ) ) {
 				wp_send_json_error( array( 'message' => $result->get_error_message() ) );
 				return;
@@ -146,7 +98,7 @@ add_filter(
 			if ( null !== $result || 'haydi_run_query' !== $name ) {
 				return $result;
 			}
-			$r = haydi_db_ext_execute_query(
+			$r = haydi_query_execute(
 				trim( (string) ( $args['sql'] ?? '' ) ),
 				(string) ( $args['reason'] ?? '' ),
 				$logger,
@@ -174,7 +126,7 @@ add_filter(
 					'methods'             => 'POST',
 					'callback'            => static function ( WP_REST_Request $r ) use ( $logger, $health ) {
 						$body   = $r->get_json_params();
-						$result = haydi_db_ext_execute_query(
+						$result = haydi_query_execute(
 							trim( (string) ( $body['sql'] ?? '' ) ),
 							(string) ( $body['reason'] ?? '' ),
 							$logger,
@@ -195,7 +147,7 @@ add_filter(
 	);
 } )();
 
-function haydi_db_ext_execute_query( string $sql, string $reason, Haydi_Audit_Logger $logger, Haydi_Health_Check $health ): array|WP_Error {
+function haydi_query_execute( string $sql, string $reason, Haydi_Audit_Logger $logger, Haydi_Health_Check $health ): array|WP_Error {
 	if ( '' === trim( $sql ) ) {
 		return new WP_Error( 'missing_param', 'sql is required.', array( 'status' => 400 ) );
 	}
