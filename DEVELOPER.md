@@ -155,7 +155,8 @@ npm run dist
 
 Produces `dist/haydi.zip`, a complete install containing every built-in tool. The zip root folder is `haydi/` so WordPress can install it directly.
 
-The zip does not contain tests, dev tooling, or vendor code.
+The zip includes the plugin's GPL license and bundled-library notices. It does
+not contain tests, dev tooling, or vendor code.
 
 ---
 

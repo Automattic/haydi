@@ -33,6 +33,9 @@ sed -i '' "s/^Stable tag: $CURRENT$/Stable tag: $VERSION/" readme.txt
 sed -i '' "s/'haydi_version' => '$CURRENT'/'haydi_version' => '$VERSION'/" includes/class-rest-api.php
 sed -i '' "s/'version' => '$CURRENT'/'version' => '$VERSION'/" includes/class-rest-api.php
 
+# Keep the REST integration assertion aligned with the released version.
+sed -i '' "s/expect(res.haydi_version).toBe('$CURRENT')/expect(res.haydi_version).toBe('$VERSION')/" tests/handlers.spec.js
+
 # Prepend changelog entry (after the == Changelog == heading).
 # Use literal newlines in sed's `a\` continuation — bash does not convert
 # \n inside double-quoted strings, so this writes real line breaks rather
@@ -48,7 +51,7 @@ echo "Running dist build..."
 npm run dist
 
 echo "Committing version bump..."
-git add haydi.php readme.txt LICENSE includes/class-rest-api.php scripts/release.sh
+git add haydi.php readme.txt includes/class-rest-api.php tests/handlers.spec.js
 git commit -m "Bump version to $VERSION"
 
 echo "Creating tag v$VERSION..."
