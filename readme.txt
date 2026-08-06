@@ -3,7 +3,7 @@ Contributors: automattic, bor0, raicem
 Tags: ai, automation, assistant, site-management, mcp
 Requires at least: 7.0
 Tested up to: 7.0
-Stable tag: 1.0.1
+Stable tag: 1.1.0
 Requires PHP: 8.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -133,6 +133,13 @@ If you opt in to usage analytics, anonymised event data (actions taken, errors e
 No WordPress-bundled libraries (jQuery, Backbone, lodash, etc.) are duplicated by this plugin.
 
 == Changelog ==
+= 1.1.0 =
+* Released 2026-08-07.
+* Bundled file editing, database query, and PHP execution tools directly in Haydi, replacing separate extension downloads with one complete plugin package.
+* Unified chat and MCP tool declarations and execution through one validated Tool Catalog.
+* Consolidated browser mutations into one authenticated approval pipeline while preserving explicit human confirmation.
+* Preserved structured tool results until transport boundaries for consistent OpenAI, Anthropic, and Google behavior.
+* Simplified distribution to a single haydi.zip package.
 
 = 1.0.1 =
 * Released 2026-07-06.
