@@ -42,7 +42,6 @@ function haydi_register_file_action_tools(
 			'activity_label' => 'Prepared write file',
 			'proposal'       => array(
 				'label'          => 'Write File',
-				'ajax_action'    => 'haydi_apply_write',
 				'log_action'     => 'write_proposed',
 				'log_path_field' => 'path',
 			),
@@ -103,7 +102,6 @@ function haydi_register_file_action_tools(
 			'activity_label' => 'Prepared edit file',
 			'proposal'       => array(
 				'label'          => 'Edit File',
-				'ajax_action'    => 'haydi_edit_file',
 				'log_action'     => 'edit_proposed',
 				'log_path_field' => 'filePath',
 			),
@@ -130,7 +128,7 @@ function haydi_register_file_action_tools(
 			(string) ( $arguments['filePath'] ?? '' ),
 			(string) ( $arguments['oldString'] ?? '' ),
 			(string) ( $arguments['newString'] ?? '' ),
-			(bool) ( $arguments['replaceAll'] ?? false ),
+			filter_var( $arguments['replaceAll'] ?? false, FILTER_VALIDATE_BOOLEAN ),
 			(string) ( $arguments['reason'] ?? '' ),
 			$guard,
 			$health,
@@ -160,7 +158,6 @@ function haydi_register_file_action_tools(
 			'activity_label' => 'Prepared delete file',
 			'proposal'       => array(
 				'label'          => 'Delete File',
-				'ajax_action'    => 'haydi_delete_file',
 				'log_action'     => 'delete_proposed',
 				'log_path_field' => 'path',
 			),
@@ -192,7 +189,6 @@ function haydi_register_file_action_tools(
 			'description' => 'Move or rename a file within the allowed roots. Calling this tool opens an approval UI for the user; they confirm before the move. A backup of the source is created automatically. You must invoke this tool to trigger the approval — describing the move in plain text does nothing.',
 			'mcp_desc'    => 'Move or rename a file.',
 			'mcp_result'  => 'File moved',
-			'ajax_action' => 'haydi_move_file',
 			'log_action'  => 'move_proposed',
 		),
 		'copy_file' => array(
@@ -200,7 +196,6 @@ function haydi_register_file_action_tools(
 			'description' => 'Copy a file within the allowed roots. Calling this tool opens an approval UI for the user; they confirm before the copy. The destination is backed up if it already exists. You must invoke this tool to trigger the approval — describing the copy in plain text does nothing.',
 			'mcp_desc'    => 'Copy a file.',
 			'mcp_result'  => 'File copied',
-			'ajax_action' => 'haydi_copy_file',
 			'log_action'  => 'copy_proposed',
 		),
 	) as $name => $config ) {
@@ -230,7 +225,6 @@ function haydi_register_file_action_tools(
 				'activity_label' => 'Prepared ' . strtolower( $config['label'] ),
 				'proposal'       => array(
 					'label'          => $config['label'],
-					'ajax_action'    => $config['ajax_action'],
 					'log_action'     => $config['log_action'],
 					'log_path_field' => 'src',
 				),
@@ -283,7 +277,6 @@ function haydi_register_file_action_tools(
 			'activity_label' => 'Prepared delete directory',
 			'proposal'       => array(
 				'label'          => 'Delete Directory',
-				'ajax_action'    => 'haydi_delete_dir',
 				'log_action'     => 'rmdir_proposed',
 				'log_path_field' => 'path',
 			),
@@ -335,7 +328,6 @@ function haydi_register_file_action_tools(
 			'activity_label' => 'Prepared restore backup',
 			'proposal'       => array(
 				'label'          => 'Restore Backup',
-				'ajax_action'    => 'haydi_restore_backup',
 				'log_action'     => 'restore_proposed',
 				'log_path_field' => 'original_path',
 			),
@@ -364,7 +356,7 @@ function haydi_register_file_action_tools(
 }
 
 // -------------------------------------------------------------------------
-// Browser AJAX and direct REST Adapters.
+// Browser preflight and direct REST Adapters.
 // -------------------------------------------------------------------------
 
 ( static function () {
@@ -386,14 +378,6 @@ function haydi_register_file_action_tools(
 		return isset( $_POST[ $key ] ) ? sanitize_text_field( wp_unslash( $_POST[ $key ] ) ) : '';
 	};
 
-	$require_param = static function ( string $key ) use ( $post_param ): string {
-		$value = $post_param( $key );
-		if ( '' === $value ) {
-			wp_send_json_error( array( 'message' => $key . ' is required.' ) );
-		}
-		return $value;
-	};
-
 	add_action(
 		'wp_ajax_haydi_prepare_playground_preflight',
 		static function () use ( $verify, $post_param, $guard ) {
@@ -403,102 +387,6 @@ function haydi_register_file_action_tools(
 				wp_send_json_error( array( 'message' => 'path is required.' ) );
 				return; }
 			$result = $guard->prepare_playground_preflight( $path );
-			if ( is_wp_error( $result ) ) {
-				wp_send_json_error( array( 'message' => $result->get_error_message() ) );
-				return; }
-			wp_send_json_success( $result );
-		}
-	);
-
-	add_action(
-		'wp_ajax_haydi_apply_write',
-		static function () use ( $verify, $post_param, $guard, $health, $logger ) {
-			$verify();
-			$path = $post_param( 'path' );
-		// phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- nonce verified; content validated by guard
-			$content = isset( $_POST['content'] ) ? wp_unslash( $_POST['content'] ) : '';
-			$result  = haydi_file_execute_write( $path, $content, '', $guard, $health, $logger );
-			if ( is_wp_error( $result ) ) {
-				wp_send_json_error( array( 'message' => $result->get_error_message() ) );
-				return; }
-			wp_send_json_success( $result );
-		}
-	);
-
-	add_action(
-		'wp_ajax_haydi_edit_file',
-		static function () use ( $verify, $post_param, $guard, $health, $logger ) {
-			$verify();
-			$file_path = $post_param( 'filePath' );
-		// phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- nonce verified; exact strings must preserve code/newlines
-			$old_string = isset( $_POST['oldString'] ) ? wp_unslash( $_POST['oldString'] ) : '';
-		// phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
-			$new_string = isset( $_POST['newString'] ) ? wp_unslash( $_POST['newString'] ) : '';
-		// phpcs:ignore WordPress.Security.NonceVerification.Missing
-			$replace_all = isset( $_POST['replaceAll'] ) ? filter_var( wp_unslash( $_POST['replaceAll'] ), FILTER_VALIDATE_BOOLEAN ) : false;
-			$reason      = $post_param( 'reason' );
-			$result      = haydi_file_execute_edit( $file_path, $old_string, $new_string, $replace_all, $reason, $guard, $health, $logger );
-			if ( is_wp_error( $result ) ) {
-				wp_send_json_error( array( 'message' => $result->get_error_message() ) );
-				return; }
-			wp_send_json_success( $result );
-		}
-	);
-
-	add_action(
-		'wp_ajax_haydi_delete_file',
-		static function () use ( $verify, $require_param, $guard, $health, $logger ) {
-			$verify();
-			$result = haydi_file_execute_delete( $require_param( 'path' ), 'Human-initiated deletion.', $guard, $health, $logger );
-			if ( is_wp_error( $result ) ) {
-				wp_send_json_error( array( 'message' => $result->get_error_message() ) );
-				return; }
-			wp_send_json_success( $result );
-		}
-	);
-
-	add_action(
-		'wp_ajax_haydi_move_file',
-		static function () use ( $verify, $require_param, $post_param, $guard, $health, $logger ) {
-			$verify();
-			$result = haydi_file_execute_move( $require_param( 'src' ), $require_param( 'dest' ), $post_param( 'reason' ), $guard, $health, $logger );
-			if ( is_wp_error( $result ) ) {
-				wp_send_json_error( array( 'message' => $result->get_error_message() ) );
-				return; }
-			wp_send_json_success( $result );
-		}
-	);
-
-	add_action(
-		'wp_ajax_haydi_copy_file',
-		static function () use ( $verify, $require_param, $post_param, $guard, $health, $logger ) {
-			$verify();
-			$result = haydi_file_execute_copy( $require_param( 'src' ), $require_param( 'dest' ), $post_param( 'reason' ), $guard, $health, $logger );
-			if ( is_wp_error( $result ) ) {
-				wp_send_json_error( array( 'message' => $result->get_error_message() ) );
-				return; }
-			wp_send_json_success( $result );
-		}
-	);
-
-	add_action(
-		'wp_ajax_haydi_delete_dir',
-		static function () use ( $verify, $require_param, $post_param, $guard, $health, $logger ) {
-			$verify();
-			$reason = $post_param( 'reason' );
-			$result = haydi_file_execute_delete_dir( $require_param( 'path' ), '' !== $reason ? $reason : 'Human-initiated directory deletion.', $guard, $health, $logger );
-			if ( is_wp_error( $result ) ) {
-				wp_send_json_error( array( 'message' => $result->get_error_message() ) );
-				return; }
-			wp_send_json_success( $result );
-		}
-	);
-
-	add_action(
-		'wp_ajax_haydi_restore_backup',
-		static function () use ( $verify, $require_param, $guard, $health, $logger ) {
-			$verify();
-			$result = haydi_file_execute_restore_backup( $require_param( 'backup_file' ), $require_param( 'original_path' ), '', $guard, $health, $logger );
 			if ( is_wp_error( $result ) ) {
 				wp_send_json_error( array( 'message' => $result->get_error_message() ) );
 				return; }
@@ -536,7 +424,7 @@ function haydi_register_file_action_tools(
 						'permission_callback' => $perm,
 						'callback'            => static function ( WP_REST_Request $r ) use ( $wrap, $guard, $health, $logger ) {
 								$b = $r->get_json_params();
-								return $wrap( haydi_file_execute_edit( (string) ( $b['path'] ?? '' ), (string) ( $b['old_string'] ?? '' ), (string) ( $b['new_string'] ?? '' ), (bool) ( $b['replace_all'] ?? false ), (string) ( $b['reason'] ?? '' ), $guard, $health, $logger ) ); },
+								return $wrap( haydi_file_execute_edit( (string) ( $b['path'] ?? '' ), (string) ( $b['old_string'] ?? '' ), (string) ( $b['new_string'] ?? '' ), filter_var( $b['replace_all'] ?? false, FILTER_VALIDATE_BOOLEAN ), (string) ( $b['reason'] ?? '' ), $guard, $health, $logger ) ); },
 					),
 					array(
 						'methods'             => 'DELETE',

@@ -1,13 +1,11 @@
 <?php
 /**
- * AJAX dispatcher — runs the agentic chat loop and wires per-tool classes
- * onto their respective wp_ajax_* hooks.
+ * AJAX dispatcher — runs the agentic chat loop, exposes the single browser
+ * approval Adapter, and wires the remaining wp_ajax_* endpoints.
  *
  * Security model:
  *  - Every action verifies current_user_can('manage_options') AND a nonce
- *    (handled by Haydi_Ajax_Tool_Base::verify on the per-tool classes,
- *    and inline by handle_chat / handle_save_settings / handle_clear_log
- *    / handle_dismiss_jetpack_notice on this class).
+ *    (handled by Haydi_Ajax_Tool_Base::verify).
  *  - All filesystem paths are re-validated by Haydi_Filesystem_Guard.
  *  - Approval-gated tools (file writes, SQL, PHP, …) are NEVER executed
  *    automatically; the loop pauses and surfaces a "pending_action"
@@ -39,18 +37,11 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 		$this->client        = new Haydi_AI_Client( $tool_catalog );
 		$this->tool_catalog  = $tool_catalog;
 		$this->token_manager = new Haydi_Api_Token_Manager();
-		$health              = new Haydi_Health_Check();
 
-		// Construct each tool with its dependencies and let it register its
-		// own AJAX hooks. Centralising registration here would force this class
-		// to know every tool's hook name; delegating it keeps each tool a
-		// self-contained unit.
-		$file_tool   = new Haydi_File_Tool( $this->logger, $this->guard );
-		$plugin_tool = new Haydi_Plugin_Tool( $this->logger, $health );
-		$chat_store  = new Haydi_Chat_Store( $this->logger, $this->client );
+		$file_tool  = new Haydi_File_Tool( $this->logger, $this->guard );
+		$chat_store = new Haydi_Chat_Store( $this->logger, $this->client );
 
 		$file_tool->register();
-		$plugin_tool->register();
 		$chat_store->register();
 		$this->register();
 	}
@@ -83,6 +74,7 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 		foreach ( array(
 			'haydi_chat'                   => 'handle_chat',
 			'haydi_chat_stream'            => 'handle_chat_stream',
+			'haydi_execute_approved_tool'  => 'handle_execute_approved_tool',
 			'haydi_compact_chat'           => 'handle_compact_chat',
 			'haydi_save_settings'          => 'handle_save_settings',
 			'haydi_clear_log'              => 'handle_clear_log',
@@ -97,6 +89,47 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 		}
 	}
 
+	/**
+	 * Execute one catalog-native Action Proposal after explicit browser approval.
+	 *
+	 * Authentication remains in the browser Adapter; Tool resolution, policy,
+	 * argument normalization, and execution remain in the Tool Catalog.
+	 */
+	public function handle_execute_approved_tool(): void {
+		$this->verify();
+
+		$tool_name = $this->post_param( 'tool_name' );
+		if ( '' === $tool_name ) {
+			wp_send_json_error( array( 'message' => 'tool_name is required.' ) );
+		}
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- nonce verified above; exact Tool arguments are decoded then normalized by the catalog
+		$raw_arguments   = isset( $_POST['arguments'] ) ? wp_unslash( $_POST['arguments'] ) : '';
+		$argument_object = is_string( $raw_arguments ) ? json_decode( $raw_arguments ) : null;
+		if ( ! $argument_object instanceof stdClass || JSON_ERROR_NONE !== json_last_error() ) {
+			wp_send_json_error( array( 'message' => 'arguments must be a JSON object.' ) );
+		}
+		$arguments = (array) $argument_object;
+
+		$outcome = $this->tool_catalog()->execute_approved( $tool_name, $arguments );
+		if ( is_wp_error( $outcome ) ) {
+			$error = array( 'message' => $outcome->get_error_message() );
+			$data  = $outcome->get_error_data();
+			if ( is_array( $data ) && isset( $data['output'] ) ) {
+				$error['output'] = (string) $data['output'];
+			}
+			wp_send_json_error( $error );
+		}
+
+		wp_send_json_success(
+			array(
+				'tool_name'   => $tool_name,
+				'result'      => $outcome['data'],
+				'tool_result' => $outcome['content'],
+			)
+		);
+	}
+
 	// -------------------------------------------------------------------------
 	// Chat / agentic loop
 	// -------------------------------------------------------------------------
@@ -106,7 +139,7 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 	 *
 	 * Read tools (list_files / read_file / fetch_url / list_plugins) execute
 	 * automatically. Approval-gated tools stop the loop and surface a
-	 * pending_action payload for human approval.
+	 * pending_action Action Proposal for human approval.
 	 */
 	public function handle_chat(): void {
 		$this->verify();
@@ -261,7 +294,6 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 			}
 
 			$tool_results    = array();
-			$pending_key     = null;
 			$pending_payload = null;
 			$text_before     = $all_text;
 
@@ -325,7 +357,6 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 					$audit = $outcome['audit'];
 					$this->logger->log( $audit['action'], $audit['path'], $audit['reason'] );
 
-					$pending_key                    = $outcome['response_key'];
 					$pending_payload                = $outcome['payload'];
 					$pending_payload['tool_use_id'] = $tool_id;
 					continue;
@@ -385,11 +416,11 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 			if ( null !== $pending_payload ) {
 				$pending_payload['pre_results'] = $tool_results;
 				return array(
-					'text'       => $all_text,
-					'messages'   => $messages,
-					'usage'      => $usage,
-					'activity'   => $activity,
-					$pending_key => $pending_payload,
+					'text'           => $all_text,
+					'messages'       => $messages,
+					'usage'          => $usage,
+					'activity'       => $activity,
+					'pending_action' => $pending_payload,
 				);
 			}
 

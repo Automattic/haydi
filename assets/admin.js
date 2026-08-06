@@ -1379,9 +1379,14 @@
      * pushes a competing tool_result for the same tool_use_id.
      */
     function trackApply(jqxhr) {
-        state.applyInFlight = true;
-        jqxhr.always(function () { state.applyInFlight = false; });
+        setApprovalInFlight(true);
+        jqxhr.always(function () { setApprovalInFlight(false); });
         return jqxhr;
+    }
+
+    function setApprovalInFlight(inFlight) {
+        state.applyInFlight = inFlight;
+        $('#wpc-btn-confirm-action, #wpc-btn-cancel-action').prop('disabled', inFlight);
     }
 
     function spinner() {
@@ -1679,7 +1684,7 @@
                         type:        'tool_result',
                         tool_use_id: p.tool_use_id,
                         name:        p.tool_name,
-                        content:     'The user did not approve the proposed ' + PROPOSALS[p.kind].label + ' and sent a new instruction instead.',
+                        content:     'The user did not approve the proposed ' + approvalSubject(p) + ' and sent a new instruction instead.',
                     },
                     { type: 'text', text: apiText },
                 ]),
@@ -1801,17 +1806,14 @@
         // snapshot includes the freshly-rendered text.
         saveCurrentChat();
 
-        // Surface whatever proposal the server returned (at most one).
-        Object.keys(PROPOSALS).some(function (kind) {
-            var cfg = PROPOSALS[kind];
-            if (!data[cfg.responseKey]) return false;
-            state.pending = $.extend({ kind: kind }, data[cfg.responseKey]);
-            cfg.show(state.pending);
-            return true;
-        });
+        // Every approval Tool uses one response envelope and one browser flow.
+        if (data.pending_action) {
+            state.pending = normalizePendingApproval(data.pending_action);
+            showPendingApproval(state.pending);
+        }
 
         if (state.autoAccept && state.pending) {
-            $('#' + PROPOSALS[state.pending.kind].confirmBtnId).click();
+            $('#wpc-btn-confirm-action').click();
         }
     }
 
@@ -1919,7 +1921,7 @@
      * Post the current state.messages to the server and handle the response.
      * The server runs the full agentic loop and returns either:
      *   - A text response (done)
-     *   - A pending_write (needs human approval)
+     *   - A pending_action Action Proposal (needs human approval)
      */
     function runChatRequest() {
         setBusy(true);
@@ -2039,178 +2041,141 @@
     }
 
     // -------------------------------------------------------------------------
-    // Proposal table — one entry per approvable AI action.
-    //
-    // setupProposal() at the bottom of this section reads each entry to wire
-    // up the show / hide / confirm-button / cancel-button handlers, replacing
-    // ten near-identical hand-rolled blocks. Custom hooks (`show`, `hide`,
-    // `onSuccess`, `onApplied`) cover the few per-type behaviours that
-    // genuinely differ — diff rendering for write, editor cleanup after a
-    // delete that targeted the open file, etc.
+    // Approval presentation registry. Execution, transcript completion, error
+    // handling, and cancellation use one pipeline below; these entries only
+    // retain the UI details that genuinely differ by Tool.
     // -------------------------------------------------------------------------
 
-    var PROPOSALS = {
-        action: {
-            kind:         'action',
-            responseKey:  'pending_action',
-            sectionId:    'wpc-action-section',
-            confirmBtnId: 'wpc-btn-confirm-action',
-            cancelBtnId:  'wpc-btn-cancel-action',
-            statusId:     'wpc-action-status',
-            label:        'action',
-            getAjaxAction: function (p) { return p.ajax_action || ''; },
-            buildPayload: function (p) {
-                var out = {};
-                (p.payload_keys || []).forEach(function (k) { out[k] = p[k] !== undefined ? p[k] : ''; });
-                return out;
-            },
-            show: function (p) {
-                $('#wpc-action-label').text(p.label || 'Action');
-                $('#wpc-action-reason').text(p.reason || '(no reason given)');
-                $('#wpc-action-section').removeClass('wpc-hidden');
-                $('#wpc-action-status').text('').removeClass('is-error');
-                syncEditorPanelVisibility();
-                scrollChatToBottom();
-
-                var $payload = $('#wpc-action-payload');
-
-                if (p.tool_name === 'write_file' && p.path) {
-                    $payload.html('<span class="wpc-dl wpc-dl-ctx"> Loading…\n</span>');
-                    post('haydi_read_file', { path: p.path }, function (res) {
-                        $payload.html(renderUnifiedDiff(res.success ? res.data.content : '', p.content || ''));
-                    });
-                } else if (p.tool_name === 'edit' && p.filePath) {
-                    $payload.html('<span class="wpc-dl wpc-dl-ctx"> Loading…\n</span>');
-                    post('haydi_read_file', { path: p.filePath }, function (res) {
-                        if (!res.success) {
-                            $payload.html('<span class="wpc-dl wpc-dl-del"> ' + esc(res.data.message || 'Failed to read file.') + '\n</span>');
-                            return;
-                        }
-                        var edit = applyExactEdit(res.data.content, p.oldString || '', p.newString || '', isReplaceAll(p.replaceAll));
-                        if (!edit.ok) {
-                            $('#wpc-action-status').text(edit.error).addClass('is-error');
-                            $payload.html(renderUnifiedDiff(res.data.content, res.data.content));
-                            return;
-                        }
-                        $payload.html(renderUnifiedDiff(res.data.content, edit.content));
-                    });
-                } else {
-                    var dump = {};
-                    (p.payload_keys || []).forEach(function (k) {
-                        if (k !== 'reason') { dump[k] = p[k] !== undefined ? p[k] : ''; }
-                    });
-                    $payload.text(JSON.stringify(dump, null, 2));
-                }
-            },
-            successUi: function (p) {
-                // For destructive ops the file is gone — skip the view link.
-                var noLink = p.tool_name === 'delete_file' || p.tool_name === 'delete_dir';
-                var path   = noLink ? '' : (p.path || p.filePath || p.dest || p.original_path || '');
-                var base   = (p.label || 'Action') + ' completed.';
-                return path ? base + ' ' + fileViewMarkdownLink(path) + styleVariationRefreshHint(path) : base;
-            },
-            successAi: function (p, data) {
-                var noLink = p.tool_name === 'delete_file' || p.tool_name === 'delete_dir';
-                var path   = noLink ? '' : (p.path || p.filePath || p.dest || p.original_path || '');
-                var base   = (p.label || 'Action') + ' completed successfully.';
-                if (path) { return base + ' ' + fileViewMarkdownLink(path) + styleVariationRefreshHint(path); }
-                return base + (data && data.result ? ' ' + data.result : '');
-            },
-        },
-
-        install: {
-            kind:         'install',
-            responseKey:  'pending_install',
-            sectionId:    'wpc-install-section',
-            confirmBtnId: 'wpc-btn-confirm-install',
-            cancelBtnId:  'wpc-btn-cancel-install',
-            statusId:     'wpc-install-status',
-            ajaxAction:   'haydi_install_plugin',
-            payloadKeys:  ['slug', 'reason'],
-            label:        'plugin installation',
+    var APPROVAL_PRESENTATIONS = {
+        install_plugin: {
+            icon:         'dashicons-download',
+            targetField:  'slug',
+            approveLabel: 'Install Plugin',
+            hideDetails:  true,
             confirmText:  function (p) { return 'Install plugin "' + p.slug + '" from WordPress.org?\n\nThis will download and install the plugin. Continue?'; },
-            // Keep the install card terse: the slug is the target, while the
-            // model-supplied reason remains in the payload/logs.
-            show: function (p) {
-                $('#wpc-install-slug').text(p.slug);
-                $('#wpc-install-reason').text(p.reason || '(no reason given)');
-                $('#wpc-install-section').removeClass('wpc-hidden');
-                $('#wpc-install-status').text('').removeClass('is-error');
-                syncEditorPanelVisibility();
-                scrollChatToBottom();
-            },
-            // Plugin file path comes back from the server and is appended to both messages.
-            onSuccess: function (p, data) {
-                var pluginFile = data.plugin_file || '';
-                $('#wpc-install-status').text('Installed.');
-                appendMessage('assistant', 'Plugin "' + p.slug + '" installed' + (pluginFile ? ' (' + pluginFile + ')' : '') + '.');
-                return 'Plugin "' + p.slug + '" installed successfully.' + (pluginFile ? ' Plugin file: ' + pluginFile : '');
+            successUi:    function (p, data) {
+                var pluginFile = data && data.plugin_file ? data.plugin_file : '';
+                return 'Plugin "' + p.slug + '" installed' + (pluginFile ? ' (' + pluginFile + ')' : '') + '.';
             },
         },
-
-        activate: {
-            kind:         'activate',
-            responseKey:  'pending_activate',
-            sectionId:    'wpc-activate-section',
-            confirmBtnId: 'wpc-btn-confirm-activate',
-            cancelBtnId:  'wpc-btn-cancel-activate',
-            statusId:     'wpc-activate-status',
-            ajaxAction:   'haydi_activate_plugin',
-            payloadKeys:  ['plugin', 'reason'],
-            label:        'plugin activation',
-            showFields:   { 'wpc-activate-plugin': 'plugin', 'wpc-activate-reason': 'reason' },
+        activate_plugin: {
+            icon:         'dashicons-yes-alt',
+            targetField:  'plugin',
+            approveLabel: 'Activate Plugin',
+            hideDetails:  true,
             successUi:    function (p) { return 'Plugin "' + p.plugin + '" activated. Refresh WP Admin to see any new plugin menu/sidebar items.'; },
-            successAi:    function (p) { return 'Plugin "' + p.plugin + '" activated successfully. Tell the user to refresh WP Admin if they expect new plugin menu/sidebar items to appear.'; },
         },
-
-        deactivate: {
-            kind:         'deactivate',
-            responseKey:  'pending_deactivate',
-            sectionId:    'wpc-deactivate-section',
-            confirmBtnId: 'wpc-btn-confirm-deactivate',
-            cancelBtnId:  'wpc-btn-cancel-deactivate',
-            statusId:     'wpc-deactivate-status',
-            ajaxAction:   'haydi_deactivate_plugin',
-            payloadKeys:  ['plugin', 'reason'],
-            label:        'plugin deactivation',
-            showFields:   { 'wpc-deactivate-plugin': 'plugin', 'wpc-deactivate-reason': 'reason' },
+        deactivate_plugin: {
+            icon:         'dashicons-dismiss',
+            tone:         'danger',
+            targetField:  'plugin',
+            approveLabel: 'Deactivate Plugin',
+            hideDetails:  true,
             confirmText:  function (p) { return 'Deactivate plugin "' + p.plugin + '"?\n\nThis may affect site functionality. Continue?'; },
             successUi:    function (p) { return 'Plugin "' + p.plugin + '" deactivated.'; },
-            successAi:    function (p) { return 'Plugin "' + p.plugin + '" deactivated successfully.'; },
         },
+        run_query:  { icon: 'dashicons-database', tone: 'warning' },
+        run_php:    { icon: 'dashicons-editor-code', tone: 'warning' },
+        delete_file: { icon: 'dashicons-trash', tone: 'danger' },
+        delete_dir:  { icon: 'dashicons-trash', tone: 'danger' },
     };
 
-    // Default show: write each `showFields` entry into a #id with .text(),
-    // then unhide the section and clear its status line.
-    function defaultShow(cfg) {
-        return function (p) {
-            Object.keys(cfg.showFields || {}).forEach(function (id) {
-                var key      = cfg.showFields[id];
-                var fallback = key === 'reason' ? '(no reason given)' : '';
-                $('#' + id).text(p[key] || fallback);
-            });
-            $('#' + cfg.sectionId).removeClass('wpc-hidden');
-            $('#' + cfg.statusId).text('').removeClass('is-error');
-            syncEditorPanelVisibility();
-            scrollChatToBottom();
-            var $btn = $('#' + cfg.confirmBtnId);
-            if ($btn.length) {
-                $btn[0].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            }
-        };
+    function approvalPresentation(p) {
+        return $.extend({
+            icon:         'dashicons-admin-tools',
+            tone:         '',
+            approveLabel: 'Approve',
+            hideDetails:  false,
+        }, APPROVAL_PRESENTATIONS[p.tool_name] || {});
     }
 
-    function defaultHide(cfg) {
-        return function () {
-            $('#' + cfg.sectionId).addClass('wpc-hidden');
-            syncEditorPanelVisibility();
-        };
-    }
+    function approvalArguments(p, usesLegacyAdapter) {
+        var legacy = usesLegacyAdapter === true || p.usesLegacyAdapter === true;
+        if (!legacy && p.arguments && typeof p.arguments === 'object' && !Array.isArray(p.arguments)) {
+            return $.extend({}, p.arguments);
+        }
 
-    function buildPayload(cfg, p) {
         var out = {};
-        cfg.payloadKeys.forEach(function (k) { out[k] = p[k] !== undefined ? p[k] : ''; });
+        (p.payload_keys || []).forEach(function (k) { out[k] = p[k] !== undefined ? p[k] : ''; });
         return out;
+    }
+
+    function normalizePendingApproval(p) {
+        // Read the compatibility marker from the server envelope before
+        // flattening arguments for presentation. A catalog Tool may legally
+        // declare fields with the same names, but nested model input must not
+        // be able to select an AJAX Adapter.
+        var usesLegacyAdapter = p.legacy_adapter === true;
+        var normalized = $.extend({}, approvalArguments(p, usesLegacyAdapter), p);
+        normalized.usesLegacyAdapter = usesLegacyAdapter;
+        return normalized;
+    }
+
+    function approvalSubject(p) {
+        return String(p.label || p.tool_name || 'action').toLowerCase();
+    }
+
+    function isCurrentApproval(p) {
+        return !!state.pending && state.pending.tool_use_id === p.tool_use_id;
+    }
+
+    function showPendingApproval(p) {
+        var presentation = approvalPresentation(p);
+        var $section     = $('#wpc-action-section');
+        var $target      = $('#wpc-action-target');
+        var $details     = $('#wpc-action-details');
+        var $payload     = $('#wpc-action-payload');
+        var target       = presentation.targetField ? p[presentation.targetField] : '';
+
+        $('#wpc-action-icon')
+            .attr('class', 'dashicons ' + presentation.icon);
+        $('#wpc-action-label').text(p.label || 'Action');
+        $('#wpc-action-reason').text(p.reason || '(no reason given)');
+        $('#wpc-btn-confirm-action-label').text(presentation.approveLabel);
+        $('#wpc-btn-confirm-action').toggleClass('wpc-btn-danger', presentation.tone === 'danger');
+        $('#wpc-action-status').text('').removeClass('is-error');
+        $target.text(target || '').toggleClass('wpc-hidden', !target);
+        $details.toggleClass('wpc-hidden', presentation.hideDetails);
+        $section
+            .removeClass('wpc-hidden is-warning is-danger')
+            .addClass(presentation.tone ? 'is-' + presentation.tone : '');
+        setApprovalInFlight(false);
+        syncEditorPanelVisibility();
+        scrollChatToBottom();
+
+        if (p.tool_name === 'write_file' && p.path) {
+            $payload.html('<span class="wpc-dl wpc-dl-ctx"> Loading…\n</span>');
+            post('haydi_read_file', { path: p.path }, function (res) {
+                if (isCurrentApproval(p)) {
+                    $payload.html(renderUnifiedDiff(res.success ? res.data.content : '', p.content || ''));
+                }
+            });
+        } else if (p.tool_name === 'edit' && p.filePath) {
+            $payload.html('<span class="wpc-dl wpc-dl-ctx"> Loading…\n</span>');
+            post('haydi_read_file', { path: p.filePath }, function (res) {
+                if (!isCurrentApproval(p)) { return; }
+                if (!res.success) {
+                    $payload.html('<span class="wpc-dl wpc-dl-del"> ' + esc(res.data.message || 'Failed to read file.') + '\n</span>');
+                    return;
+                }
+                var edit = applyExactEdit(res.data.content, p.oldString || '', p.newString || '', isReplaceAll(p.replaceAll));
+                if (!edit.ok) {
+                    $('#wpc-action-status').text(edit.error).addClass('is-error');
+                    $payload.html(renderUnifiedDiff(res.data.content, res.data.content));
+                    return;
+                }
+                $payload.html(renderUnifiedDiff(res.data.content, edit.content));
+            });
+        } else {
+            var dump = approvalArguments(p);
+            delete dump.reason;
+            $payload.text(JSON.stringify(dump, null, 2));
+        }
+
+        var $btn = $('#wpc-btn-confirm-action');
+        if ($btn.length) {
+            $btn[0].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
     }
 
     function fileBaseName(path) {
@@ -2319,18 +2284,18 @@
         playgroundPreflightMirror = null;
     }
 
-    function getProposedWritePath(cfg, p) {
-        if (cfg.kind === 'write') { return p.path || ''; }
-        if (cfg.kind === 'edit') { return p.filePath || ''; }
+    function getProposedWritePath(p) {
+        if (p.tool_name === 'write_file') { return p.path || ''; }
+        if (p.tool_name === 'edit') { return p.filePath || ''; }
         return '';
     }
 
-    function getProposedWriteContent(cfg, p) {
-        if (cfg.kind === 'write') {
+    function getProposedWriteContent(p) {
+        if (p.tool_name === 'write_file') {
             return Promise.resolve(p.content || '');
         }
 
-        if (cfg.kind !== 'edit') {
+        if (p.tool_name !== 'edit') {
             return Promise.resolve(null);
         }
 
@@ -2457,18 +2422,18 @@
         });
     }
 
-    function runPlaygroundPreflight(cfg, p) {
+    function runPlaygroundPreflight(p) {
         if (!isPlaygroundPreflightEnabled()) {
             return Promise.resolve('disabled');
         }
 
-        var targetPath = getProposedWritePath(cfg, p);
+        var targetPath = getProposedWritePath(p);
         if (!isPhpPath(targetPath)) {
             return Promise.resolve('skipped');
         }
 
         return Promise.all([
-            getProposedWriteContent(cfg, p),
+            getProposedWriteContent(p),
             preparePlaygroundPayload(targetPath),
             getPlaygroundClient(),
         ]).then(function (results) {
@@ -2482,137 +2447,145 @@
         });
     }
 
-    function setupProposal(cfg) {
-        cfg.show = cfg.show || defaultShow(cfg);
-        cfg.hide = cfg.hide || defaultHide(cfg);
-        cfg.cancelUi = cfg.cancelUi || 'I cancelled the proposed ' + cfg.label + '.';
-        cfg.cancelAi = cfg.cancelAi || 'The user cancelled this ' + cfg.label + '. Please reconsider or ask for clarification.';
+    function defaultApprovalSuccessUi(p) {
+        // For destructive operations the file is gone, so a view link would fail.
+        var noLink = p.tool_name === 'delete_file' || p.tool_name === 'delete_dir';
+        var path   = noLink ? '' : (p.path || p.filePath || p.dest || p.original_path || '');
+        var base   = (p.label || 'Action') + ' completed.';
+        return path ? base + ' ' + fileViewMarkdownLink(path) + styleVariationRefreshHint(path) : base;
+    }
 
-        $('#' + cfg.confirmBtnId).on('click', function () {
-            var p = state.pending;
-            if (!p || p.kind !== cfg.kind) return;
+    function legacyApprovalToolResult(p, data) {
+        var noLink = p.tool_name === 'delete_file' || p.tool_name === 'delete_dir';
+        var path   = noLink ? '' : (p.path || p.filePath || p.dest || p.original_path || '');
+        var base   = (p.label || 'Action') + ' completed successfully.';
+        if (path) { return base + ' ' + fileViewMarkdownLink(path) + styleVariationRefreshHint(path); }
+        return base + (data && data.result ? ' ' + data.result : '');
+    }
 
-            if (cfg.confirmText && !maybeConfirm(cfg.confirmText(p))) { return; }
+    function approvalRequest(p) {
+        var args = approvalArguments(p);
 
-            $('#' + cfg.statusId).text('Working\u2026').removeClass('is-error');
+        // Historical action-proposal integrations still own their AJAX Adapter.
+        // Catalog-native proposals deliberately omit ajax_action and execute
+        // through the one authenticated approval endpoint.
+        if (p.usesLegacyAdapter && p.ajax_action) {
+            return { action: p.ajax_action, data: args };
+        }
 
-            var ajaxAction = cfg.getAjaxAction ? cfg.getAjaxAction(p) : cfg.ajaxAction;
-            var postPayload = cfg.buildPayload ? cfg.buildPayload(p) : buildPayload(cfg, p);
+        return {
+            action: 'haydi_execute_approved_tool',
+            data: {
+                tool_name: p.tool_name,
+                arguments: JSON.stringify(args),
+            },
+        };
+    }
 
-            var applyAfterPreflight = function () {
-                trackApply(post(ajaxAction, postPayload, function (res) {
-                    if (res.success) {
-                        recordApply(cfg.kind);
-                        var aiMessage;
-                        if (cfg.onSuccess) {
-                            aiMessage = cfg.onSuccess(p, res.data);
-                        } else {
-                            $('#' + cfg.statusId).text('Done.');
-                            appendMessage('assistant', cfg.successUi(p, res.data));
-                            aiMessage = cfg.successAi(p, res.data);
-                        }
-                        if (cfg.onApplied) { cfg.onApplied(p, res.data); }
-
-                        state.messages.push({
-                            role:    'user',
-                            content: (p.pre_results || []).concat([{
-                                type:        'tool_result',
-                                tool_use_id: p.tool_use_id,
-                                name:        p.tool_name,
-                                content:     aiMessage,
-                            }]),
-                        });
-
-                        hideAllProposals();
-                        runChatRequest();
-                    } else {
-                        var errMsg = (res.data && res.data.message) ? res.data.message : 'Failed.';
-                        var errOutput = (res.data && res.data.output) ? '\nOutput: ' + res.data.output : '';
-                        var toolErrContent = 'Error: ' + errMsg + errOutput;
-                        appendMessage('error', toolErrContent);
-
-                        state.messages.push({
-                            role:    'user',
-                            content: (p.pre_results || []).concat([{
-                                type:        'tool_result',
-                                tool_use_id: p.tool_use_id,
-                                name:        p.tool_name,
-                                content:     toolErrContent,
-                            }]),
-                        });
-                        hideAllProposals();
-                        runChatRequest();
-                    }
-                })).fail(function (jqXHR) {
-                    if (jqXHR.statusText === 'abort') {
-                        return;
-                    }
-                    var failMsg = ajaxFailureMessage(jqXHR, 'Request failed.');
-                    var toolFailContent = 'Error: ' + failMsg;
-                    appendMessage('error', toolFailContent);
-
-                    state.messages.push({
-                        role:    'user',
-                        content: (p.pre_results || []).concat([{
-                            type:        'tool_result',
-                            tool_use_id: p.tool_use_id,
-                            name:        p.tool_name,
-                            content:     toolFailContent,
-                        }]),
-                    });
-                    hideAllProposals();
-                    runChatRequest();
-                });
-            };
-
-            if (cfg.kind === 'write' || cfg.kind === 'edit') {
-                $('#' + cfg.statusId).text('Preflighting in WordPress Playground\u2026');
-                state.applyInFlight = true;
-                runPlaygroundPreflight(cfg, p)
-                    .then(function (result) {
-                        state.applyInFlight = false;
-                        if (result === 'skipped' || result === 'disabled') {
-                            $('#' + cfg.statusId).text('Working\u2026').removeClass('is-error');
-                        } else {
-                            $('#' + cfg.statusId).text('Playground boot passed. Applying\u2026').removeClass('is-error');
-                        }
-                        applyAfterPreflight();
-                    })
-                    .catch(function (err) {
-                        state.applyInFlight = false;
-                        $('#' + cfg.statusId).text('Playground preflight failed: ' + (err && err.message ? err.message : 'Unknown error.')).addClass('is-error');
-                    });
-                return;
-            }
-
-            applyAfterPreflight();
-        });
-
-        $('#' + cfg.cancelBtnId).on('click', function () {
-            var p = state.pending;
-            if (!p || p.kind !== cfg.kind) return;
-
-            state.messages.push({
-                role:    'user',
-                content: (p.pre_results || []).concat([{
-                    type:        'tool_result',
-                    tool_use_id: p.tool_use_id,
-                    name:        p.tool_name,
-                    content:     cfg.cancelAi,
-                }]),
-            });
-            appendMessage('user', cfg.cancelUi);
-            hideAllProposals();
-            runChatRequest();
+    function appendPendingToolResult(p, content) {
+        state.messages.push({
+            role:    'user',
+            content: (p.pre_results || []).concat([{
+                type:        'tool_result',
+                tool_use_id: p.tool_use_id,
+                // Preserve the exact public name emitted by the provider. The
+                // catalog result name may be canonical and must not replace it.
+                name:        p.tool_name,
+                content:     content,
+            }]),
         });
     }
+
+    function finishPendingApproval(p, toolResult) {
+        appendPendingToolResult(p, toolResult);
+        hideAllProposals();
+        runChatRequest();
+    }
+
+    $('#wpc-btn-confirm-action').on('click', function () {
+        var p = state.pending;
+        if (!p || state.applyInFlight) { return; }
+
+        var presentation = approvalPresentation(p);
+        if (presentation.confirmText && !maybeConfirm(presentation.confirmText(p))) { return; }
+
+        $('#wpc-action-status').text('Working\u2026').removeClass('is-error');
+        var request = approvalRequest(p);
+
+        var applyAfterPreflight = function () {
+            trackApply(post(request.action, request.data, function (res) {
+                if (res.success) {
+                    var wrappedResult = res.data && Object.prototype.hasOwnProperty.call(res.data, 'tool_result');
+                    var rawResult     = wrappedResult ? res.data.result : res.data;
+                    var toolResult    = wrappedResult
+                        ? String(res.data.tool_result)
+                        : legacyApprovalToolResult(p, rawResult);
+                    var uiMessage = presentation.successUi
+                        ? presentation.successUi(p, rawResult)
+                        : defaultApprovalSuccessUi(p, rawResult);
+
+                    recordApply(p.tool_name);
+                    $('#wpc-action-status').text('Done.');
+                    appendMessage('assistant', uiMessage);
+                    finishPendingApproval(p, toolResult);
+                    return;
+                }
+
+                var errMsg = (res.data && res.data.message) ? res.data.message : 'Failed.';
+                var errOutput = (res.data && res.data.output) ? '\nOutput: ' + res.data.output : '';
+                var toolErrContent = 'Error: ' + errMsg + errOutput;
+                appendMessage('error', toolErrContent);
+                finishPendingApproval(p, toolErrContent);
+            })).fail(function (jqXHR) {
+                if (jqXHR.statusText === 'abort') { return; }
+
+                var failMsg = ajaxFailureMessage(jqXHR, 'Request failed.');
+                var toolFailContent = 'Error: ' + failMsg;
+                appendMessage('error', toolFailContent);
+                finishPendingApproval(p, toolFailContent);
+            });
+        };
+
+        if (p.tool_name === 'write_file' || p.tool_name === 'edit') {
+            $('#wpc-action-status').text('Preflighting in WordPress Playground\u2026');
+            setApprovalInFlight(true);
+            runPlaygroundPreflight(p)
+                .then(function (result) {
+                    if (result === 'skipped' || result === 'disabled') {
+                        $('#wpc-action-status').text('Working\u2026').removeClass('is-error');
+                    } else {
+                        $('#wpc-action-status').text('Playground boot passed. Applying\u2026').removeClass('is-error');
+                    }
+                    applyAfterPreflight();
+                })
+                .catch(function (err) {
+                    setApprovalInFlight(false);
+                    $('#wpc-action-status').text('Playground preflight failed: ' + (err && err.message ? err.message : 'Unknown error.')).addClass('is-error');
+                });
+            return;
+        }
+
+        applyAfterPreflight();
+    });
+
+    $('#wpc-btn-cancel-action').on('click', function () {
+        var p = state.pending;
+        if (!p || state.applyInFlight) { return; }
+
+        var subject = approvalSubject(p);
+        appendMessage('user', 'I cancelled the proposed ' + subject + '.');
+        finishPendingApproval(
+            p,
+            'The user cancelled this ' + subject + '. Please reconsider or ask for clarification.'
+        );
+    });
 
     function hideAllProposals() {
-        Object.keys(PROPOSALS).forEach(function (k) { PROPOSALS[k].hide(); });
+        $('#wpc-action-section').addClass('wpc-hidden').removeClass('is-warning is-danger');
         state.pending = null;
+        setApprovalInFlight(false);
+        syncEditorPanelVisibility();
     }
-
-    Object.keys(PROPOSALS).forEach(function (k) { setupProposal(PROPOSALS[k]); });
 
     // -------------------------------------------------------------------------
     // Chat DOM helpers

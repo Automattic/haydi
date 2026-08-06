@@ -40,7 +40,8 @@ vendor/bin/phpunit
 | `AuditLoggerTest` | `log()` field structure, prepend order, `MAX_ENTRIES=200` trimming; `get_log()` happy path + corrupted-option fallback; `clear_log()` |
 | `JetpackContextTest` | `Jetpack_Context` with stubbed Jetpack classes — `is_available`, `is_connected`, plan/modules/stats/posts/referrers/search/security/speed/sync collectors, prompt-section formatting |
 | `JetpackContextUnavailableTest` | Same class with no Jetpack present — every method degrades to null/empty without errors (runs in a separate process) |
-| `AjaxHandlersPluginActionsTest` | `Haydi_Plugin_Tool::list_plugins_for_ai` JSON shape and active-flag accuracy; `haydi_php_execute()` output capture, no-output placeholder, exception/Error reporting, output-before-throw; `Plugin_Tool::handle_install_plugin` slug validation; `Plugin_Tool::handle_activate_plugin` path validation, file-not-found, and auto-deactivation when the post-activation health check fails; `Plugin_Tool::handle_deactivate_plugin` empty-input rejection and success path |
+| `AjaxHandlersPluginActionsTest` | `Haydi_Plugin_Tool::list_plugins_for_ai` JSON shape and active-flag accuracy; `haydi_php_execute()` output capture, no-output placeholder, exception/Error reporting, output-before-throw; plugin Tool Implementation validation and activation auto-revert behavior |
+| `AjaxApprovalHandlerTest` | the single browser Approval Pipeline Adapter: capability/nonce checks, required Tool name, JSON-object arguments, catalog delegation, standard success/error envelopes, and PHP output propagation |
 | `AjaxHandlersChatTest` | `Haydi_Chat_Store::handle_save_chat` / `handle_load_chat` — token-usage persistence, per-message timestamps, display-log round-trip |
 | `AjaxHandlersApplyWriteTest` | `haydi_file_execute_write()` — `token_get_all` PHP lint gate, post-write loopback health check via `Health_Check`, automatic restore-from-backup on health failure |
 | `AjaxHandlersFileMoveTest` | `haydi_file_execute_move()` two-step undo — destination is removed and source is restored from backup when the post-move health check fails; healthy moves leave the destination intact and skip restore |
@@ -70,20 +71,19 @@ npm run test:unit
 npm test
 ```
 
-Playwright tests against a live wp-env instance on `http://localhost:9888`. Covers all AJAX actions including:
+Playwright tests against a live wp-env instance on `http://localhost:9888`. Covers the shared approval endpoint and the remaining AJAX actions, including:
 
 - `read_file` with security-rejection cases (paths outside roots)
-- `execute_query` 200-row truncation and non-SELECT write queries
+- approved `run_query` Tool Executions, including 200-row truncation and non-SELECT writes
 - `save_settings` out-of-range value handling
 - `verify()` — missing nonce and invalid nonce both return 403
 - Chat CRUD: save, list, load, update-in-place, delete
 - `MAX_CHATS=50` eviction (saving 51 chats drops the oldest)
 - Missing required parameters for move, copy, load, delete, and save chat
-- `run_php` — output capture, no-output placeholder, exception reporting, empty/whitespace rejection, WordPress context access
-- `install_plugin` — invalid slug rejection (uppercase, path traversal, slash)
-- `activate_plugin` — path traversal, non-PHP extension, file-not-found rejection
-- `deactivate_plugin` — empty plugin rejection
-- `chat-pending.spec.js` — typing a new message while a pending proposal is outstanding cancels the proposal cleanly without orphaning a `tool_use` block; approving a PHP snippet that returns an error propagates the error back to the agent as a `tool_result` so it can retry
+- approved `run_php` Tool Executions — output capture, no-output placeholder, exception reporting, empty/whitespace rejection, WordPress context access
+- approved plugin Tool Executions — install slug validation, activation path/file validation, and deactivation input validation
+- the generic approval Adapter rejects unknown, automatic, malformed, non-object, and unauthenticated requests; edit's string `"false"` cannot widen a single-match proposal into replace-all
+- `chat-pending.spec.js` — one approval card and transcript lifecycle across success, error, decline, cancellation, legacy compatibility, and in-flight race protection
 - Token generation, REST API file/status operations with Bearer token auth
 - MCP initialize handshake, tools/list, tools/call, token revocation
 
@@ -102,19 +102,19 @@ Playwright tests against a live wp-env instance on `http://localhost:9888`. Cove
 
 A few non-obvious conventions that make the code easier to extend:
 
-- **Per-tool layout.** Built-in Tool Implementations live under `includes/tools/`. Read-only file operations are in `class-file-tool.php`; WordPress content inventory is in `class-content-tool.php`; file mutations are in `class-file-actions.php`; plugin management, URL fetching, SQL, and PHP each have their own module. Each module registers its Tool Declarations and Tool Implementations once with `Haydi_Tool_Catalog`; class-based tools expose `register_tools($catalog)`, while the standalone mutation modules expose `haydi_register_*_tool()` functions. Browser AJAX and direct REST handlers remain alongside the Implementations they invoke. `Haydi_Ajax_Handlers` owns the chat agentic loop, system-prompt builder, and non-tool endpoints. `Haydi_Chat_Store` owns list/save/load/delete/record_apply and `trim_messages_to_fit`.
+- **Per-tool layout.** Built-in Tool Implementations live under `includes/tools/`. Read-only file operations are in `class-file-tool.php`; WordPress content inventory is in `class-content-tool.php`; file mutations are in `class-file-actions.php`; plugin management, URL fetching, SQL, and PHP each have their own module. Each module registers its Tool Declarations and Tool Implementations once with `Haydi_Tool_Catalog`; class-based tools expose `register_tools($catalog)`, while the standalone mutation modules expose `haydi_register_*_tool()` functions. Direct REST Adapters remain beside the Implementations they invoke, while browser approval crosses one Adapter in `Haydi_Ajax_Handlers`. That class also owns the chat agentic loop, system-prompt builder, and non-tool endpoints. `Haydi_Chat_Store` owns list/save/load/delete/record_apply and `trim_messages_to_fit`.
 
-- **Tool Catalog.** `Haydi_Tool_Catalog` is the canonical registry for Tool names, JSON Schemas, automatic-versus-approval policy, availability, chat/MCP projections, activity labels, and dispatch. `declarations()` gives the AI and MCP Adapters their provider-independent Tool Declarations; `dispatch()` normalizes projected names and arguments, returns a Tool Execution for automatic chat tools, returns an Action Proposal for mutating chat tools, and executes either kind for an already-authorized MCP request. The catalog does not contain filesystem, SQL, plugin, or PHP algorithms; those stay in their focused Tool Implementations.
+- **Tool Catalog.** `Haydi_Tool_Catalog` is the canonical registry for Tool names, JSON Schemas, automatic-versus-approval policy, availability, chat/MCP projections, activity labels, and dispatch. `declarations()` gives the AI and MCP Adapters their provider-independent Tool Declarations; `dispatch()` normalizes projected names and arguments, returns a Tool Execution for automatic chat Tools, returns an Action Proposal for mutating chat Tools, and executes either kind for an already-authorized MCP request. After browser authorization, `execute_approved()` resolves the exact chat projection, rechecks approval policy and availability, then invokes the same registered Tool Implementation and presenter path. The catalog does not contain filesystem, SQL, plugin, or PHP algorithms; those stay in their focused Tool Implementations.
 
 - **Provider Tool selection.** Haydi supplies the same provider-independent Tool Declarations to every connector and leaves Tool selection at the connector/provider default. Do not send a custom `tool_choice`: accepted shapes differ between provider transports, while Anthropic, Google, and OpenAI all default to automatic selection when Tools are present.
 
 - **Health check + auto-revert.** `Haydi_Health_Check` (`includes/class-health-check.php`) is injected into every mutating handler — the standalone execute functions receive it as a parameter; `Plugin_Tool` holds it directly. Read-only tools and `Chat_Store` do not receive it. After a successful mutation, the handler calls either `verify_or_revert($undo, $context)` (file ops, plugin activation — `$undo` is the per-op rollback closure) or `verify_or_warn($context)` (directory delete, SQL, PHP, plugin install — anything without a clean undo). Both probe the dedicated `haydi_health` AJAX endpoint via a loopback HTTP request pinned to `127.0.0.1`. The endpoint itself is registered only when `DOING_AJAX` and refuses non-loopback `REMOTE_ADDR`s. The move undo is the only multi-step one (delete dest + restore src); the rest delegate to `restore_latest_backup()` or `deactivate_plugins()`.
 
-- **Action Proposals.** An approval Tool's catalog entry owns its proposal label, AJAX action, audit verb, audit path field, and any historical response key. Chat dispatch copies only declared arguments into a side-effect-free Action Proposal; the agent loop still enforces one pending proposal at a time and records the proposal only when it is surfaced. `PROPOSALS` in `assets/admin.js` remains the browser Adapter for showing and submitting the existing generic and plugin-specific approval cards.
+- **Approval Pipeline.** Every catalog-native approval Tool produces the same `pending_action` envelope: `{tool_name, label, arguments}`. The agent loop permits one Action Proposal at a time. The browser renders one approval card and posts approved work to `haydi_execute_approved_tool`; that authenticated Adapter delegates policy, normalization, and execution back to the Tool Catalog and returns `{tool_name, result, tool_result}`. `result` is raw Implementation data for UI presentation, while the server-authored `tool_result` resolves the exact provider Tool call. `APPROVAL_PRESENTATIONS` contains only Tool-specific labels, icons, warnings, confirmations, and success copy. Decline resolves the transcript without Tool Execution.
 
-- **Adding Tools.** The preferred extension Seam is the `haydi_register_tools` action. Register a callback during plugin load and call `$catalog->register($definition, $implementation)` from it; the default catalog fires the action when it is built and then freezes, so late registration is rejected. A definition must provide one canonical name, description, object JSON Schema, `automatic` or `approval` effect, and at least one chat/MCP projection. Canonical and projected Tool names use the portable provider subset `^[A-Za-z_][A-Za-z0-9_-]{0,63}$`; malformed schemas and projection collisions are rejected during registration. Chat approval Tools must also provide a complete Action Proposal, including the browser AJAX action that performs the approved mutation; keep that handler beside the Implementation and have both call the same service function. Use projection names and input aliases only for compatibility—the Tool Implementation always receives canonical arguments.
+- **Adding Tools.** The preferred extension Seam is the `haydi_register_tools` action. Register a callback during plugin load and call `$catalog->register($definition, $implementation)` from it; the default catalog fires the action when it is built and then freezes, so late registration is rejected. A definition must provide one canonical name, description, object JSON Schema, `automatic` or `approval` effect, and at least one chat/MCP projection. Canonical and projected Tool names use the portable provider subset `^[A-Za-z_][A-Za-z0-9_-]{0,63}$`; malformed schemas and projection collisions are rejected during registration. A chat approval Tool adds proposal label and audit metadata, but does not add a browser endpoint: its registered Implementation automatically crosses the shared Approval Pipeline. Use projection names and input aliases only for compatibility—the Tool Implementation always receives canonical arguments.
 
-- **Legacy Tool hooks.** Existing additive host integrations continue to work: `haydi_tool_schemas` and `haydi_execute_read_tool` are adapted onto chat declaration/execution, while `haydi_mcp_tools` and `haydi_mcp_execute_tool` can add MCP declarations/executors. Catalog MCP declarations are restored after the legacy filter, so legacy callbacks cannot remove or mutate built-ins and colliding additions are ignored. Historical Action Proposals remain a compatibility path: catalog-native approval Tools win collisions, while a legacy proposal may still approval-gate an automatic Tool as it did before. New integrations should use `haydi_register_tools` so a Tool Declaration, Tool Implementation, approval policy, and MCP exposure cannot drift apart.
+- **Legacy Tool hooks.** Existing additive host integrations continue to work: `haydi_tool_schemas` and `haydi_execute_read_tool` are adapted onto chat declaration/execution, while `haydi_mcp_tools` and `haydi_mcp_execute_tool` can add MCP declarations/executors. Catalog MCP declarations are restored after the legacy filter, so legacy callbacks cannot remove or mutate built-ins and colliding additions are ignored. Historical `haydi_register_action_proposal()` registrations still render through the one approval card, then an explicit compatibility Adapter calls their declared AJAX action. Catalog-native approval Tools win collisions, while a legacy proposal may still approval-gate an automatic Tool as it did before. New integrations should use `haydi_register_tools` so a Tool Declaration, Tool Implementation, approval policy, and MCP exposure cannot drift apart.
 
 - **Test halt sentinel.** Production `wp_send_json_success/error` call `wp_die()` and never return. The handler test fixtures stub them to capture the response then `throw new \HaydiTestHaltException` (declared in `tests/unit/bootstrap.php`); the call helpers in each test catch it. This stops a downstream code path from masking the first error a handler emitted.
 
@@ -203,7 +203,7 @@ haydi/
 │   ├── class-tool-catalog.php        # canonical declarations, projections, policy, dispatch
 │   ├── class-ai-client.php           # AI Connector DTO Adapter for catalog declarations
 │   ├── class-chat-store.php          # list/save/load/delete + trim_messages_to_fit
-│   ├── class-ajax-handlers.php       # chat loop, system prompt, catalog Adapter
+│   ├── class-ajax-handlers.php       # chat loop + single browser approval Adapter
 │   ├── class-api-token-manager.php   # generate/validate/list/revoke long-lived API tokens
 │   ├── class-rest-api.php            # REST routes + MCP Streamable HTTP catalog Adapter
 │   └── tools/
@@ -212,8 +212,8 @@ haydi/
 │       ├── class-content-tool.php    # list_posts/list_users/list_options shared execution
 │       ├── class-file-actions.php    # write/edit/delete/move/copy/delete_dir/restore_backup
 │       ├── class-plugin-tool.php     # install/activate/deactivate + list_plugins
-│       ├── class-query-tool.php      # SQL registration, AJAX, REST, and execution
-│       ├── class-php-tool.php        # PHP registration, AJAX, REST, and execution
+│       ├── class-query-tool.php      # SQL registration, REST Adapter, and execution
+│       ├── class-php-tool.php        # PHP registration, REST Adapter, and execution
 │       └── class-fetch-url-tool.php  # fetch_url + SSRF guard (no AJAX endpoint)
 ├── admin/
 │   ├── main-page.php
@@ -223,7 +223,7 @@ haydi/
 │   ├── admin.js                      # command-palette entry inlined via wp_add_inline_script
 │   └── marked.min.js                 # markdown renderer (vendored)
 ├── tests/
-│   ├── handlers.spec.js         # Playwright integration tests (all AJAX actions)
+│   ├── handlers.spec.js         # Playwright: shared approval + remaining AJAX actions
 │   ├── chat-pending.spec.js     # Playwright: pending-proposal cancel-on-new-message flow
 │   ├── run-prompt.js            # Manual headed-browser smoke test
 │   └── unit/

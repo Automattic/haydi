@@ -70,9 +70,9 @@ Browser                   PHP (this plugin)           AI Connector (WP Connector
   │                             │  (loop until done or approval needed)
   │                             │◄── tool_use (write / query / install …)
   │                             │   [NOT executed yet]         │
-  │◄── pending proposal ────────│                              │
-  │   [diff, SQL, PHP, … + buttons]                            │
-  │── "Apply" / "Execute" ─────►│                              │
+  │◄── Action Proposal ─────────│                              │
+  │   [one approval card: diff, SQL, PHP, …]                   │
+  │── "Approve" ────────────────►│                              │
   │                             │   [backup + write / execute] │
   │◄── success ─────────────────│                              │
 ```

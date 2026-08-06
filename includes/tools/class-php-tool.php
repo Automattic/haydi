@@ -35,7 +35,6 @@ function haydi_register_php_tool(
 			'activity_label' => 'Prepared run PHP',
 			'proposal'       => array(
 				'label'          => 'Run PHP',
-				'ajax_action'    => 'haydi_run_php',
 				'log_action'     => 'php_proposed',
 				'log_path_field' => '',
 			),
@@ -76,37 +75,6 @@ function haydi_register_php_tool(
 ( static function () {
 	$logger = new Haydi_Audit_Logger();
 	$health = new Haydi_Health_Check();
-
-	add_action(
-		'wp_ajax_haydi_run_php',
-		static function () use ( $logger, $health ) {
-			if ( ! current_user_can( 'manage_options' ) ) {
-				wp_send_json_error( array( 'message' => 'Permission denied.' ), 403 );
-			}
-			if ( ! check_ajax_referer( 'haydi_nonce', 'nonce', false ) ) {
-				wp_send_json_error( array( 'message' => 'Invalid or expired nonce.' ), 403 );
-			}
-
-			// phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- nonce verified above; code is human-approved
-			$code = isset( $_POST['code'] ) ? wp_unslash( $_POST['code'] ) : '';
-			// phpcs:ignore WordPress.Security.NonceVerification.Missing
-			$reason = isset( $_POST['reason'] ) ? sanitize_text_field( wp_unslash( $_POST['reason'] ) ) : '';
-
-			$result = haydi_php_execute( $code, $reason, $logger, $health );
-			if ( is_wp_error( $result ) ) {
-				$data   = $result->get_error_data();
-				$output = is_array( $data ) && isset( $data['output'] ) ? $data['output'] : '';
-				wp_send_json_error(
-					array(
-						'message' => $result->get_error_message(),
-						'output'  => $output,
-					)
-				);
-				return;
-			}
-			wp_send_json_success( $result );
-		}
-	);
 
 	add_action(
 		'rest_api_init',

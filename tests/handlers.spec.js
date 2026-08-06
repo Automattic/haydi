@@ -55,17 +55,18 @@ test.describe('Haydi_Ajax_Handlers', () => {
         });
 
         // Seed the test directory with a file.
-        await post({
-            action:  'haydi_apply_write',
+        const seeded = await approve('write_file', {
             path:    testFile,
             content: '<?php // haydi test fixture\n',
+            reason:  'Seed the Haydi integration-test fixture.',
         });
+        expectApprovalEnvelope(seeded, 'write_file');
     });
 
     test.afterAll(async () => {
         // Best-effort cleanup — delete the whole test directory.
         try {
-            await post({ action: 'haydi_delete_dir', path: testDir });
+            await approve('delete_dir', { path: testDir, reason: 'Clean up Haydi integration-test fixtures.' });
         } catch { /* ignore */ }
         await page.context().close();
     });
@@ -75,6 +76,25 @@ test.describe('Haydi_Ajax_Handlers', () => {
         return page.request
             .post(ajaxUrl, { form: { nonce, ...data } })
             .then(r => r.json());
+    }
+
+    /** Execute a catalog-native approval Tool through the single AJAX pipeline. */
+    function approve(toolName, args) {
+        return post({
+            action:     'haydi_execute_approved_tool',
+            tool_name:  toolName,
+            arguments:  JSON.stringify(args),
+        });
+    }
+
+    /** Assert and return the raw Tool Implementation result from the standard envelope. */
+    function expectApprovalEnvelope(res, toolName) {
+        expect(res.success).toBe(true);
+        expect(res.data.tool_name).toBe(toolName);
+        expect(res.data).toHaveProperty('result');
+        expect(typeof res.data.tool_result).toBe('string');
+        expect(res.data.tool_result.length).toBeGreaterThan(0);
+        return res.data.result;
     }
 
     // -------------------------------------------------------------------------
@@ -94,61 +114,95 @@ test.describe('Haydi_Ajax_Handlers', () => {
     });
 
     // -------------------------------------------------------------------------
-    // haydi_apply_write
+    // haydi_execute_approved_tool — file write
     // -------------------------------------------------------------------------
 
-    test('haydi_apply_write — creates a new file', async () => {
+    test('approved write_file — creates a new file and returns the standard envelope', async () => {
         const path = `${testDir}/write-test.php`;
-        const res = await post({ action: 'haydi_apply_write', path, content: '<?php // write test\n' });
-        expect(res.success).toBe(true);
-        expect(res.data.path).toBe(path);
+        const res = await approve('write_file', {
+            path,
+            content: '<?php // write test\n',
+            reason:  'Exercise the unified approval pipeline.',
+        });
+        const result = expectApprovalEnvelope(res, 'write_file');
+        expect(result.path).toBe(path);
         // Verify content was written.
         const read = await post({ action: 'haydi_read_file', path });
         expect(read.data.content).toContain('write test');
         // Cleanup.
-        await post({ action: 'haydi_delete_file', path });
+        await approve('delete_file', { path, reason: 'Clean up the write test.' });
     });
 
-    test('haydi_apply_write — rejects path outside allowed roots', async () => {
-        const res = await post({ action: 'haydi_apply_write', path: '/tmp/evil.php', content: '' });
+    test('approved write_file — rejects path outside allowed roots', async () => {
+        const res = await approve('write_file', {
+            path:    '/tmp/evil.php',
+            content: '',
+            reason:  'Verify path restrictions.',
+        });
         expect(res.success).toBe(false);
     });
 
+    test('approved edit — string false does not widen the approved replacement', async () => {
+        const path = `${testDir}/edit-boolean-test.txt`;
+        const original = 'same\nsame\n';
+        const seeded = await approve('write_file', {
+            path,
+            content: original,
+            reason:  'Seed the edit boolean regression fixture.',
+        });
+        expectApprovalEnvelope(seeded, 'write_file');
+
+        const edited = await approve('edit', {
+            filePath:  path,
+            oldString: 'same',
+            newString: 'changed',
+            replaceAll: 'false',
+            reason:    'Verify string false remains a single-match edit.',
+        });
+        expect(edited.success).toBe(false);
+
+        const read = await post({ action: 'haydi_read_file', path });
+        expect(read.success).toBe(true);
+        expect(read.data.content).toBe(original);
+
+        await approve('delete_file', { path, reason: 'Clean up the edit boolean regression fixture.' });
+    });
+
     // -------------------------------------------------------------------------
-    // haydi_copy_file
+    // haydi_execute_approved_tool — file copy
     // -------------------------------------------------------------------------
 
-    test('haydi_copy_file — copies a file to a new path', async () => {
+    test('approved copy_file — copies a file to a new path', async () => {
         const dest = `${testDir}/test-copy.php`;
-        const res = await post({ action: 'haydi_copy_file', src: testFile, dest, reason: 'test copy' });
-        expect(res.success).toBe(true);
-        expect(res.data.dest).toBe(dest);
+        const res = await approve('copy_file', { src: testFile, dest, reason: 'test copy' });
+        const result = expectApprovalEnvelope(res, 'copy_file');
+        expect(result.dest).toBe(dest);
         // Verify the copy exists and has the right content.
         const read = await post({ action: 'haydi_read_file', path: dest });
         expect(read.success).toBe(true);
         expect(read.data.content).toContain('<?php');
         // Cleanup.
-        await post({ action: 'haydi_delete_file', path: dest });
+        await approve('delete_file', { path: dest, reason: 'Clean up the copy test.' });
     });
 
-    test('haydi_copy_file — rejects source outside allowed roots', async () => {
-        const res = await post({ action: 'haydi_copy_file', src: '/etc/passwd', dest: `${testDir}/bad.php`, reason: 'test' });
+    test('approved copy_file — rejects source outside allowed roots', async () => {
+        const res = await approve('copy_file', { src: '/etc/passwd', dest: `${testDir}/bad.php`, reason: 'test' });
         expect(res.success).toBe(false);
     });
 
     // -------------------------------------------------------------------------
-    // haydi_move_file
+    // haydi_execute_approved_tool — file move
     // -------------------------------------------------------------------------
 
-    test('haydi_move_file — moves a file', async () => {
+    test('approved move_file — moves a file', async () => {
         const src  = `${testDir}/move-src.php`;
         const dest = `${testDir}/move-dest.php`;
-        await post({ action: 'haydi_apply_write', path: src, content: '<?php // move source\n' });
+        await approve('write_file', { path: src, content: '<?php // move source\n', reason: 'Create the move fixture.' });
 
-        const res = await post({ action: 'haydi_move_file', src, dest, reason: 'test move' });
-        expect(res.success).toBe(true);
-        expect(res.data.src).toBe(src);
-        expect(res.data.dest).toBe(dest);
+        const res = await approve('move_file', { src, dest, reason: 'test move' });
+        const result = expectApprovalEnvelope(res, 'move_file');
+        expect(result.src).toBe(src);
+        expect(result.dest).toBe(dest);
 
         // Source should be gone.
         const readSrc = await post({ action: 'haydi_read_file', path: src });
@@ -158,65 +212,101 @@ test.describe('Haydi_Ajax_Handlers', () => {
         const readDest = await post({ action: 'haydi_read_file', path: dest });
         expect(readDest.success).toBe(true);
         // Cleanup.
-        await post({ action: 'haydi_delete_file', path: dest });
+        await approve('delete_file', { path: dest, reason: 'Clean up the move test.' });
     });
 
     // -------------------------------------------------------------------------
-    // haydi_delete_file
+    // haydi_execute_approved_tool — file deletion
     // -------------------------------------------------------------------------
 
-    test('haydi_delete_file — deletes an existing file', async () => {
+    test('approved delete_file — deletes an existing file', async () => {
         const path = `${testDir}/to-delete.php`;
-        await post({ action: 'haydi_apply_write', path, content: '<?php\n' });
-        const res = await post({ action: 'haydi_delete_file', path });
-        expect(res.success).toBe(true);
+        await approve('write_file', { path, content: '<?php\n', reason: 'Create the deletion fixture.' });
+        const res = await approve('delete_file', { path, reason: 'Exercise approved deletion.' });
+        expectApprovalEnvelope(res, 'delete_file');
         // File should no longer be readable.
         const read = await post({ action: 'haydi_read_file', path });
         expect(read.success).toBe(false);
     });
 
-    test('haydi_delete_file — rejects non-existent file', async () => {
-        const res = await post({ action: 'haydi_delete_file', path: `${testDir}/no-such-file.php` });
+    test('approved delete_file — rejects non-existent file', async () => {
+        const res = await approve('delete_file', { path: `${testDir}/no-such-file.php`, reason: 'Verify missing-file handling.' });
         expect(res.success).toBe(false);
     });
 
     // -------------------------------------------------------------------------
-    // haydi_delete_dir
+    // haydi_execute_approved_tool — directory deletion
     // -------------------------------------------------------------------------
 
-    test('haydi_delete_dir — recursively deletes a subdirectory', async () => {
+    test('approved delete_dir — recursively deletes a subdirectory', async () => {
         const subDir  = `${testDir}/subdir`;
         const subFile = `${subDir}/file.php`;
-        await post({ action: 'haydi_apply_write', path: subFile, content: '<?php\n' });
+        await approve('write_file', { path: subFile, content: '<?php\n', reason: 'Create the directory-deletion fixture.' });
 
-        const res = await post({ action: 'haydi_delete_dir', path: subDir });
-        expect(res.success).toBe(true);
+        const res = await approve('delete_dir', { path: subDir, reason: 'Exercise approved directory deletion.' });
+        expectApprovalEnvelope(res, 'delete_dir');
 
         // The seed file should no longer be readable inside the deleted dir.
         const read = await post({ action: 'haydi_read_file', path: subFile });
         expect(read.success).toBe(false);
     });
 
-    test('haydi_delete_dir — rejects deletion of an allowed root directory', async () => {
-        const res = await post({ action: 'haydi_delete_dir', path: pluginsDir });
+    test('approved delete_dir — rejects deletion of an allowed root directory', async () => {
+        const res = await approve('delete_dir', { path: pluginsDir, reason: 'Verify root protection.' });
         expect(res.success).toBe(false);
         expect(res.data.message).toMatch(/root/i);
     });
 
     // -------------------------------------------------------------------------
-    // haydi_execute_query
+    // haydi_execute_approved_tool — SQL
     // -------------------------------------------------------------------------
 
-    test('haydi_execute_query — runs a SELECT query and returns rows', async () => {
-        const res = await post({ action: 'haydi_execute_query', sql: 'SELECT 1 AS n', reason: 'test' });
-        expect(res.success).toBe(true);
-        expect(res.data.type).toBe('select');
-        expect(res.data.rows[0].n).toBe('1');
+    test('approved run_query — runs a SELECT query and returns rows', async () => {
+        const res = await approve('run_query', { sql: 'SELECT 1 AS n', reason: 'test' });
+        const result = expectApprovalEnvelope(res, 'run_query');
+        expect(result.type).toBe('select');
+        expect(result.rows[0].n).toBe('1');
     });
 
-    test('haydi_execute_query — rejects empty sql', async () => {
-        const res = await post({ action: 'haydi_execute_query', sql: '', reason: 'test' });
+    test('approved run_query — rejects empty sql', async () => {
+        const res = await approve('run_query', { sql: '', reason: 'test' });
         expect(res.success).toBe(false);
+    });
+
+    // -------------------------------------------------------------------------
+    // haydi_execute_approved_tool — policy and input validation
+    // -------------------------------------------------------------------------
+
+    test('approval pipeline rejects an automatic Tool', async () => {
+        const res = await approve('read_file', { path: testFile });
+        expect(res.success).toBe(false);
+        expect(res.data.message).toMatch(/approval/i);
+    });
+
+    test('approval pipeline rejects an unknown Tool', async () => {
+        const res = await approve('definitely_not_a_haydi_tool', {});
+        expect(res.success).toBe(false);
+        expect(res.data.message).toMatch(/unknown|not found/i);
+    });
+
+    test('approval pipeline rejects malformed arguments JSON', async () => {
+        const res = await post({
+            action:    'haydi_execute_approved_tool',
+            tool_name: 'run_query',
+            arguments: '{not valid json',
+        });
+        expect(res.success).toBe(false);
+        expect(res.data.message).toMatch(/argument|json/i);
+    });
+
+    test('approval pipeline rejects arguments that are not a JSON object', async () => {
+        const res = await post({
+            action:    'haydi_execute_approved_tool',
+            tool_name: 'run_query',
+            arguments: JSON.stringify(['SELECT 1']),
+        });
+        expect(res.success).toBe(false);
+        expect(res.data.message).toMatch(/argument|object/i);
     });
 
     // -------------------------------------------------------------------------
@@ -254,32 +344,30 @@ test.describe('Haydi_Ajax_Handlers', () => {
     });
 
     // -------------------------------------------------------------------------
-    // haydi_execute_query — edge cases
+    // haydi_execute_approved_tool — SQL edge cases
     // -------------------------------------------------------------------------
 
-    test('haydi_execute_query — SELECT truncates results beyond MAX_QUERY_ROWS (200)', async () => {
+    test('approved run_query — SELECT truncates results beyond MAX_QUERY_ROWS (200)', async () => {
         // information_schema.columns always has hundreds of rows in any MySQL install.
-        const res = await post({
-            action: 'haydi_execute_query',
+        const res = await approve('run_query', {
             sql:    'SELECT table_name FROM information_schema.columns LIMIT 205',
             reason: 'test truncation',
         });
-        expect(res.success).toBe(true);
-        expect(res.data.type).toBe('select');
-        expect(res.data.truncated).toBe(true);
-        expect(res.data.rows.length).toBe(200);
+        const result = expectApprovalEnvelope(res, 'run_query');
+        expect(result.type).toBe('select');
+        expect(result.truncated).toBe(true);
+        expect(result.rows.length).toBe(200);
     });
 
-    test('haydi_execute_query — non-SELECT returns affected-row count', async () => {
+    test('approved run_query — non-SELECT returns affected-row count', async () => {
         // Use a no-op UPDATE that matches zero rows — safe, leaves no data behind.
-        const res = await post({
-            action: 'haydi_execute_query',
+        const res = await approve('run_query', {
             sql:    "UPDATE wp_options SET autoload = autoload WHERE option_name = 'haydi_nonexistent_option_test'",
             reason: 'test non-select',
         });
-        expect(res.success).toBe(true);
-        expect(res.data.type).toBe('write');
-        expect(res.data).toHaveProperty('rows');
+        const result = expectApprovalEnvelope(res, 'run_query');
+        expect(result.type).toBe('write');
+        expect(result).toHaveProperty('rows');
     });
 
     // -------------------------------------------------------------------------
@@ -316,18 +404,32 @@ test.describe('Haydi_Ajax_Handlers', () => {
         expect(res.data.message).toMatch(/nonce/i);
     });
 
+    test('approval pipeline rejects request with no nonce', async () => {
+        const res = await page.request
+            .post(ajaxUrl, {
+                form: {
+                    action:    'haydi_execute_approved_tool',
+                    tool_name: 'run_query',
+                    arguments: JSON.stringify({ sql: 'SELECT 1', reason: 'must not execute' }),
+                },
+            })
+            .then(r => r.json());
+        expect(res.success).toBe(false);
+        expect(res.data.message).toMatch(/nonce/i);
+    });
+
     // -------------------------------------------------------------------------
     // Missing required parameters
     // -------------------------------------------------------------------------
 
-    test('haydi_move_file — rejects missing src / dest', async () => {
-        const res = await post({ action: 'haydi_move_file', src: '', dest: '', reason: 'test' });
+    test('approved move_file — rejects missing src / dest', async () => {
+        const res = await approve('move_file', { src: '', dest: '', reason: 'test' });
         expect(res.success).toBe(false);
         expect(res.data.message).toMatch(/required/i);
     });
 
-    test('haydi_copy_file — rejects missing src / dest', async () => {
-        const res = await post({ action: 'haydi_copy_file', src: '', dest: '', reason: 'test' });
+    test('approved copy_file — rejects missing src / dest', async () => {
+        const res = await approve('copy_file', { src: '', dest: '', reason: 'test' });
         expect(res.success).toBe(false);
         expect(res.data.message).toMatch(/required/i);
     });
@@ -474,102 +576,98 @@ test.describe('Haydi_Ajax_Handlers', () => {
     });
 
     // -------------------------------------------------------------------------
-    // haydi_run_php
+    // haydi_execute_approved_tool — PHP
     // -------------------------------------------------------------------------
 
-    test('haydi_run_php — executes code and returns captured output', async () => {
-        const res = await post({
-            action: 'haydi_run_php',
+    test('approved run_php — executes code and returns captured output', async () => {
+        const res = await approve('run_php', {
             code:   "echo 'hello from php';",
             reason: 'integration test',
         });
-        expect(res.success).toBe(true);
-        expect(res.data.output).toBe('hello from php');
+        const result = expectApprovalEnvelope(res, 'run_php');
+        expect(result.output).toBe('hello from php');
     });
 
-    test('haydi_run_php — returns no-output placeholder for silent code', async () => {
-        const res = await post({
-            action: 'haydi_run_php',
+    test('approved run_php — returns no-output placeholder for silent code', async () => {
+        const res = await approve('run_php', {
             code:   '$x = 1 + 1;',
             reason: 'silent computation',
         });
-        expect(res.success).toBe(true);
-        expect(res.data.output).toBe('(no output)');
+        const result = expectApprovalEnvelope(res, 'run_php');
+        expect(result.output).toBe('(no output)');
     });
 
-    test('haydi_run_php — returns error for thrown exception', async () => {
-        const res = await post({
-            action: 'haydi_run_php',
+    test('approved run_php — returns error for thrown exception', async () => {
+        const res = await approve('run_php', {
             code:   "throw new \\RuntimeException('test error');",
             reason: 'exception test',
         });
         expect(res.success).toBe(false);
         expect(res.data.message).toMatch(/test error/);
+        expect(res.data.output).toBe('');
     });
 
-    test('haydi_run_php — rejects empty code', async () => {
-        const res = await post({ action: 'haydi_run_php', code: '', reason: 'test' });
+    test('approved run_php — rejects empty code', async () => {
+        const res = await approve('run_php', { code: '', reason: 'test' });
         expect(res.success).toBe(false);
         expect(res.data.message).toMatch(/required/i);
     });
 
-    test('haydi_run_php — rejects whitespace-only code', async () => {
-        const res = await post({ action: 'haydi_run_php', code: '   ', reason: 'test' });
+    test('approved run_php — rejects whitespace-only code', async () => {
+        const res = await approve('run_php', { code: '   ', reason: 'test' });
         expect(res.success).toBe(false);
     });
 
-    test('haydi_run_php — can access WordPress globals', async () => {
+    test('approved run_php — can access WordPress globals', async () => {
         // Verify the snippet runs in WP context by reading a known option.
-        const res = await post({
-            action: 'haydi_run_php',
+        const res = await approve('run_php', {
             code:   "echo get_option('blogname');",
             reason: 'test wp context',
         });
-        expect(res.success).toBe(true);
+        const result = expectApprovalEnvelope(res, 'run_php');
         // output should be the site name string, not empty/error.
-        expect(typeof res.data.output).toBe('string');
-        expect(res.data.output.length).toBeGreaterThan(0);
+        expect(typeof result.output).toBe('string');
+        expect(result.output.length).toBeGreaterThan(0);
     });
 
     // -------------------------------------------------------------------------
-    // haydi_install_plugin — validation only (no real network requests)
+    // haydi_execute_approved_tool — plugin installation validation only
     // -------------------------------------------------------------------------
 
-    test('haydi_install_plugin — rejects empty slug', async () => {
-        const res = await post({ action: 'haydi_install_plugin', slug: '', reason: 'test' });
+    test('approved install_plugin — rejects empty slug', async () => {
+        const res = await approve('install_plugin', { slug: '', reason: 'test' });
         expect(res.success).toBe(false);
         expect(res.data.message).toMatch(/required/i);
     });
 
-    test('haydi_install_plugin — rejects slug with uppercase letters', async () => {
-        const res = await post({ action: 'haydi_install_plugin', slug: 'MyPlugin', reason: 'test' });
+    test('approved install_plugin — rejects slug with uppercase letters', async () => {
+        const res = await approve('install_plugin', { slug: 'MyPlugin', reason: 'test' });
         expect(res.success).toBe(false);
         expect(res.data.message).toMatch(/slug/i);
     });
 
-    test('haydi_install_plugin — rejects slug with path traversal', async () => {
-        const res = await post({ action: 'haydi_install_plugin', slug: '../evil', reason: 'test' });
+    test('approved install_plugin — rejects slug with path traversal', async () => {
+        const res = await approve('install_plugin', { slug: '../evil', reason: 'test' });
         expect(res.success).toBe(false);
     });
 
-    test('haydi_install_plugin — rejects slug with slash', async () => {
-        const res = await post({ action: 'haydi_install_plugin', slug: 'some/thing', reason: 'test' });
+    test('approved install_plugin — rejects slug with slash', async () => {
+        const res = await approve('install_plugin', { slug: 'some/thing', reason: 'test' });
         expect(res.success).toBe(false);
     });
 
     // -------------------------------------------------------------------------
-    // haydi_activate_plugin — validation
+    // haydi_execute_approved_tool — plugin activation validation
     // -------------------------------------------------------------------------
 
-    test('haydi_activate_plugin — rejects empty plugin', async () => {
-        const res = await post({ action: 'haydi_activate_plugin', plugin: '', reason: 'test' });
+    test('approved activate_plugin — rejects empty plugin', async () => {
+        const res = await approve('activate_plugin', { plugin: '', reason: 'test' });
         expect(res.success).toBe(false);
         expect(res.data.message).toMatch(/required/i);
     });
 
-    test('haydi_activate_plugin — rejects path traversal', async () => {
-        const res = await post({
-            action: 'haydi_activate_plugin',
+    test('approved activate_plugin — rejects path traversal', async () => {
+        const res = await approve('activate_plugin', {
             plugin: '../../../wp-config.php',
             reason: 'test',
         });
@@ -577,18 +675,16 @@ test.describe('Haydi_Ajax_Handlers', () => {
         expect(res.data.message).toMatch(/invalid/i);
     });
 
-    test('haydi_activate_plugin — rejects non-PHP extension', async () => {
-        const res = await post({
-            action: 'haydi_activate_plugin',
+    test('approved activate_plugin — rejects non-PHP extension', async () => {
+        const res = await approve('activate_plugin', {
             plugin: 'woocommerce/woocommerce.js',
             reason: 'test',
         });
         expect(res.success).toBe(false);
     });
 
-    test('haydi_activate_plugin — rejects plugin file that does not exist', async () => {
-        const res = await post({
-            action: 'haydi_activate_plugin',
+    test('approved activate_plugin — rejects plugin file that does not exist', async () => {
+        const res = await approve('activate_plugin', {
             plugin: 'definitely-not-installed/plugin.php',
             reason: 'test',
         });
@@ -597,11 +693,11 @@ test.describe('Haydi_Ajax_Handlers', () => {
     });
 
     // -------------------------------------------------------------------------
-    // haydi_deactivate_plugin — validation
+    // haydi_execute_approved_tool — plugin deactivation validation
     // -------------------------------------------------------------------------
 
-    test('haydi_deactivate_plugin — rejects empty plugin', async () => {
-        const res = await post({ action: 'haydi_deactivate_plugin', plugin: '', reason: 'test' });
+    test('approved deactivate_plugin — rejects empty plugin', async () => {
+        const res = await approve('deactivate_plugin', { plugin: '', reason: 'test' });
         expect(res.success).toBe(false);
         expect(res.data.message).toMatch(/required/i);
     });

@@ -2,9 +2,9 @@
 /**
  * Unit tests for plugin-management and PHP-execution tools.
  *   Haydi_Plugin_Tool::list_plugins_for_ai()
- *   Haydi_Plugin_Tool::handle_install_plugin
- *   Haydi_Plugin_Tool::handle_activate_plugin
- *   Haydi_Plugin_Tool::handle_deactivate_plugin
+ *   Haydi_Plugin_Tool::execute_install()
+ *   Haydi_Plugin_Tool::execute_activate()
+ *   Haydi_Plugin_Tool::execute_deactivate()
  *   haydi_php_execute() (includes/tools/class-php-tool.php)
  *
  * WordPress functions are stubbed via Brain\Monkey so no live WordPress is needed.
@@ -16,7 +16,6 @@ use Brain\Monkey\Functions;
 
 class AjaxHandlersPluginActionsTest extends TestCase {
 
-	private \ReflectionClass $pluginRef;
 	private \Haydi_Plugin_Tool $pluginHandler;
 	private \Haydi_Health_Check $health;
 	private \Haydi_Audit_Logger $mockLogger;
@@ -60,14 +59,9 @@ class AjaxHandlersPluginActionsTest extends TestCase {
 		Functions\when( 'wp_remote_get' )->justReturn( array( 'body' => '{"success":true,"data":"ok"}' ) );
 		Functions\when( 'wp_remote_retrieve_body' )->justReturn( '{"success":true,"data":"ok"}' );
 
-		// Build plugin tool without invoking constructor (add_action) side-effects.
-		$this->pluginRef     = new \ReflectionClass( Haydi_Plugin_Tool::class );
-		$this->pluginHandler = $this->pluginRef->newInstanceWithoutConstructor();
 		$this->mockLogger    = $this->createMock( Haydi_Audit_Logger::class );
 		$this->health        = new Haydi_Health_Check();
-
-		$this->pluginRef->getParentClass()->getProperty( 'logger' )->setValue( $this->pluginHandler, $this->mockLogger );
-		$this->pluginRef->getProperty( 'health' )->setValue( $this->pluginHandler, $this->health );
+		$this->pluginHandler = new Haydi_Plugin_Tool( $this->mockLogger, $this->health );
 
 		$_POST = array();
 	}
@@ -82,16 +76,12 @@ class AjaxHandlersPluginActionsTest extends TestCase {
 	// Helper
 	// -----------------------------------------------------------------------
 
-	/** Invoke a public handler on a tool instance after injecting $_POST values. */
-	private function callHandler( object $handler, string $method, array $post ): void {
+	/** Invoke one plugin Tool Implementation and capture its result. */
+	private function callPlugin( string $method, string $target, string $reason = 'test' ): void {
 		$this->lastSuccess = null;
 		$this->lastData    = null;
-		$_POST             = array_merge( $post, array( 'nonce' => 'test_nonce' ) );
-		try {
-			$handler->{$method}();
-		} catch ( \HaydiTestHaltException $e ) {
-			unset( $e );
-		}
+		$result            = $this->pluginHandler->{$method}( $target, $reason );
+		$this->captureResult( $result );
 	}
 
 	/** Call haydi_php_execute() directly and capture result. */
@@ -99,13 +89,17 @@ class AjaxHandlersPluginActionsTest extends TestCase {
 		$this->lastSuccess = null;
 		$this->lastData    = null;
 		$result            = haydi_php_execute( $code, $reason, $this->mockLogger, $this->health );
+		$this->captureResult( $result, true );
+	}
+
+	private function captureResult( array|WP_Error $result, bool $include_output = false ): void {
 		if ( is_wp_error( $result ) ) {
 			$data              = $result->get_error_data();
 			$this->lastSuccess = false;
-			$this->lastData    = array(
-				'message' => $result->get_error_message(),
-				'output'  => is_array( $data ) ? ( $data['output'] ?? '' ) : '',
-			);
+			$this->lastData    = array( 'message' => $result->get_error_message() );
+			if ( $include_output ) {
+				$this->lastData['output'] = is_array( $data ) ? ( $data['output'] ?? '' ) : '';
+			}
 		} else {
 			$this->lastSuccess = true;
 			$this->lastData    = $result;
@@ -247,43 +241,43 @@ class AjaxHandlersPluginActionsTest extends TestCase {
 	}
 
 	// =======================================================================
-	// handle_install_plugin — input validation
+	// execute_install — input validation
 	// =======================================================================
 
 	public function test_install_plugin_rejects_empty_slug(): void {
-		$this->callHandler( $this->pluginHandler, 'handle_install_plugin', array( 'slug' => '', 'reason' => 'test' ) );
+		$this->callPlugin( 'execute_install', '' );
 
 		$this->assertFalse( $this->lastSuccess );
 		$this->assertStringContainsString( 'required', $this->lastData['message'] );
 	}
 
 	public function test_install_plugin_rejects_slug_with_uppercase(): void {
-		$this->callHandler( $this->pluginHandler, 'handle_install_plugin', array( 'slug' => 'WooCommerce', 'reason' => 'test' ) );
+		$this->callPlugin( 'execute_install', 'WooCommerce' );
 
 		$this->assertFalse( $this->lastSuccess );
 		$this->assertStringContainsString( 'slug', $this->lastData['message'] );
 	}
 
 	public function test_install_plugin_rejects_slug_with_path_traversal(): void {
-		$this->callHandler( $this->pluginHandler, 'handle_install_plugin', array( 'slug' => '../evil', 'reason' => 'test' ) );
+		$this->callPlugin( 'execute_install', '../evil' );
 
 		$this->assertFalse( $this->lastSuccess );
 	}
 
 	public function test_install_plugin_rejects_slug_with_slash(): void {
-		$this->callHandler( $this->pluginHandler, 'handle_install_plugin', array( 'slug' => 'some/thing', 'reason' => 'test' ) );
+		$this->callPlugin( 'execute_install', 'some/thing' );
 
 		$this->assertFalse( $this->lastSuccess );
 	}
 
 	public function test_install_plugin_rejects_slug_with_spaces(): void {
-		$this->callHandler( $this->pluginHandler, 'handle_install_plugin', array( 'slug' => 'my plugin', 'reason' => 'test' ) );
+		$this->callPlugin( 'execute_install', 'my plugin' );
 
 		$this->assertFalse( $this->lastSuccess );
 	}
 
 	/**
-	 * The regex guard in handle_install_plugin must accept well-formed slugs.
+	 * The regex guard in execute_install() must accept well-formed slugs.
 	 * We test the pattern directly because the handler can't run past the
 	 * require_once lines without a live WordPress environment.
 	 */
@@ -310,40 +304,31 @@ class AjaxHandlersPluginActionsTest extends TestCase {
 	}
 
 	// =======================================================================
-	// handle_activate_plugin — input validation
+	// execute_activate — input validation
 	// =======================================================================
 
 	public function test_activate_plugin_rejects_empty_plugin(): void {
-		$this->callHandler( $this->pluginHandler, 'handle_activate_plugin', array( 'plugin' => '', 'reason' => 'test' ) );
+		$this->callPlugin( 'execute_activate', '' );
 
 		$this->assertFalse( $this->lastSuccess );
 		$this->assertStringContainsString( 'required', $this->lastData['message'] );
 	}
 
 	public function test_activate_plugin_rejects_path_traversal(): void {
-		$this->callHandler( $this->pluginHandler, 'handle_activate_plugin', array(
-			'plugin' => '../../../wp-config.php',
-			'reason' => 'test',
-		) );
+		$this->callPlugin( 'execute_activate', '../../../wp-config.php' );
 
 		$this->assertFalse( $this->lastSuccess );
 		$this->assertStringContainsString( 'Invalid', $this->lastData['message'] );
 	}
 
 	public function test_activate_plugin_rejects_non_php_extension(): void {
-		$this->callHandler( $this->pluginHandler, 'handle_activate_plugin', array(
-			'plugin' => 'woocommerce/woocommerce.js',
-			'reason' => 'test',
-		) );
+		$this->callPlugin( 'execute_activate', 'woocommerce/woocommerce.js' );
 
 		$this->assertFalse( $this->lastSuccess );
 	}
 
 	public function test_activate_plugin_rejects_double_dot_in_name(): void {
-		$this->callHandler( $this->pluginHandler, 'handle_activate_plugin', array(
-			'plugin' => 'plugin..name/file.php',
-			'reason' => 'test',
-		) );
+		$this->callPlugin( 'execute_activate', 'plugin..name/file.php' );
 
 		$this->assertFalse( $this->lastSuccess );
 	}
@@ -353,10 +338,7 @@ class AjaxHandlersPluginActionsTest extends TestCase {
 		// require_once for plugin.php is skipped.
 		Functions\when( 'activate_plugin' )->justReturn( null );
 
-		$this->callHandler( $this->pluginHandler, 'handle_activate_plugin', array(
-			'plugin' => 'nonexistent/plugin.php',
-			'reason' => 'test',
-		) );
+		$this->callPlugin( 'execute_activate', 'nonexistent/plugin.php' );
 
 		$this->assertFalse( $this->lastSuccess );
 		$this->assertStringContainsString( 'not found', $this->lastData['message'] );
@@ -373,10 +355,7 @@ class AjaxHandlersPluginActionsTest extends TestCase {
 
 		Functions\when( 'activate_plugin' )->justReturn( null ); // null = success in WP
 
-		$this->callHandler( $this->pluginHandler, 'handle_activate_plugin', array(
-			'plugin' => 'fake-plugin/fake-plugin.php',
-			'reason' => 'test activation',
-		) );
+		$this->callPlugin( 'execute_activate', 'fake-plugin/fake-plugin.php', 'test activation' );
 
 		// Cleanup.
 		unlink( $plugin_file );
@@ -387,7 +366,7 @@ class AjaxHandlersPluginActionsTest extends TestCase {
 	}
 
 	public function test_activate_plugin_auto_deactivates_on_unhealthy_post_check(): void {
-		// Real plugin file required so handle_activate_plugin reaches the
+		// Real plugin file required so execute_activate() reaches the
 		// activate_plugin() call before the file_exists guard.
 		$plugin_dir  = WP_PLUGIN_DIR . '/break-plugin';
 		$plugin_file = $plugin_dir . '/break-plugin.php';
@@ -408,10 +387,7 @@ class AjaxHandlersPluginActionsTest extends TestCase {
 			$deactivateCalledWith = $plugin;
 		} );
 
-		$this->callHandler( $this->pluginHandler, 'handle_activate_plugin', array(
-			'plugin' => 'break-plugin/break-plugin.php',
-			'reason' => 'test auto-revert',
-		) );
+		$this->callPlugin( 'execute_activate', 'break-plugin/break-plugin.php', 'test auto-revert' );
 
 		unlink( $plugin_file );
 		rmdir( $plugin_dir );
@@ -429,11 +405,11 @@ class AjaxHandlersPluginActionsTest extends TestCase {
 	}
 
 	// =======================================================================
-	// handle_deactivate_plugin — input validation and success path
+	// execute_deactivate — input validation and success path
 	// =======================================================================
 
 	public function test_deactivate_plugin_rejects_empty_plugin(): void {
-		$this->callHandler( $this->pluginHandler, 'handle_deactivate_plugin', array( 'plugin' => '', 'reason' => 'test' ) );
+		$this->callPlugin( 'execute_deactivate', '' );
 
 		$this->assertFalse( $this->lastSuccess );
 		$this->assertStringContainsString( 'required', $this->lastData['message'] );
@@ -445,10 +421,7 @@ class AjaxHandlersPluginActionsTest extends TestCase {
 			$called = true;
 		} );
 
-		$this->callHandler( $this->pluginHandler, 'handle_deactivate_plugin', array(
-			'plugin' => 'woocommerce/woocommerce.php',
-			'reason' => 'no longer needed',
-		) );
+		$this->callPlugin( 'execute_deactivate', 'woocommerce/woocommerce.php', 'no longer needed' );
 
 		$this->assertTrue( $called, 'deactivate_plugins() should have been called' );
 		$this->assertTrue( $this->lastSuccess );
@@ -458,10 +431,7 @@ class AjaxHandlersPluginActionsTest extends TestCase {
 	public function test_deactivate_plugin_returns_plugin_name_in_response(): void {
 		Functions\when( 'deactivate_plugins' )->justReturn( null );
 
-		$this->callHandler( $this->pluginHandler, 'handle_deactivate_plugin', array(
-			'plugin' => 'hello-dolly/hello.php',
-			'reason' => 'test',
-		) );
+		$this->callPlugin( 'execute_deactivate', 'hello-dolly/hello.php' );
 
 		$this->assertTrue( $this->lastSuccess );
 		$this->assertSame( 'hello-dolly/hello.php', $this->lastData['plugin'] );

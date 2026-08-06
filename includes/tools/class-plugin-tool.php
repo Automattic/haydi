@@ -1,28 +1,21 @@
 <?php
 /**
- * Plugin management Tool Implementations plus their browser AJAX Adapters.
+ * Plugin management Tool Implementations.
  */
 
 defined( 'ABSPATH' ) || exit;
 
-class Haydi_Plugin_Tool extends Haydi_Ajax_Tool_Base {
+class Haydi_Plugin_Tool {
+
+	/** @var Haydi_Audit_Logger Tool audit logger. */
+	private Haydi_Audit_Logger $logger;
 
 	/** @var Haydi_Health_Check Post-mutation site health probe. */
 	private Haydi_Health_Check $health;
 
 	public function __construct( Haydi_Audit_Logger $logger, Haydi_Health_Check $health ) {
-		parent::__construct( $logger );
+		$this->logger = $logger;
 		$this->health = $health;
-	}
-
-	public function register(): void {
-		foreach ( array(
-			'haydi_install_plugin'    => 'handle_install_plugin',
-			'haydi_activate_plugin'   => 'handle_activate_plugin',
-			'haydi_deactivate_plugin' => 'handle_deactivate_plugin',
-		) as $action => $method ) {
-			add_action( 'wp_ajax_' . $action, array( $this, $method ) );
-		}
 	}
 
 	/**
@@ -73,8 +66,6 @@ class Haydi_Plugin_Tool extends Haydi_Ajax_Tool_Base {
 				'activity_label' => 'Prepared install',
 				'proposal'       => array(
 					'label'          => 'Install Plugin',
-					'response_key'   => 'pending_install',
-					'ajax_action'    => 'haydi_install_plugin',
 					'log_action'     => 'install_proposed',
 					'log_path_field' => 'slug',
 				),
@@ -92,7 +83,7 @@ class Haydi_Plugin_Tool extends Haydi_Ajax_Tool_Base {
 				),
 			),
 			fn( array $arguments ): array|WP_Error => $this->execute_install(
-				sanitize_key( (string) ( $arguments['slug'] ?? '' ) ),
+				(string) ( $arguments['slug'] ?? '' ),
 				(string) ( $arguments['reason'] ?? '' )
 			)
 		);
@@ -119,8 +110,6 @@ class Haydi_Plugin_Tool extends Haydi_Ajax_Tool_Base {
 				'activity_label' => 'Prepared activation',
 				'proposal'       => array(
 					'label'          => 'Activate Plugin',
-					'response_key'   => 'pending_activate',
-					'ajax_action'    => 'haydi_activate_plugin',
 					'log_action'     => 'activate_proposed',
 					'log_path_field' => 'plugin',
 				),
@@ -164,8 +153,6 @@ class Haydi_Plugin_Tool extends Haydi_Ajax_Tool_Base {
 				'activity_label' => 'Prepared deactivation',
 				'proposal'       => array(
 					'label'          => 'Deactivate Plugin',
-					'response_key'   => 'pending_deactivate',
-					'ajax_action'    => 'haydi_deactivate_plugin',
 					'log_action'     => 'deactivate_proposed',
 					'log_path_field' => 'plugin',
 				),
@@ -370,58 +357,6 @@ class Haydi_Plugin_Tool extends Haydi_Ajax_Tool_Base {
 			'message' => "Plugin '{$plugin}' deactivated successfully.",
 			'plugin'  => $plugin,
 		);
-	}
-
-	// -------------------------------------------------------------------------
-	// AJAX handlers
-	// -------------------------------------------------------------------------
-
-	/**
-	 * Install a plugin from WordPress.org after human approval.
-	 */
-	public function handle_install_plugin(): void {
-		$this->verify();
-		$slug   = $this->post_param( 'slug' );
-		$reason = $this->post_param( 'reason' );
-		$result = $this->execute_install( $slug, $reason );
-		if ( is_wp_error( $result ) ) {
-			wp_send_json_error( array( 'message' => $result->get_error_message() ) );
-			return;
-		}
-		wp_send_json_success( $result );
-	}
-
-	/**
-	 * Activate a plugin after human approval. WordPress's own sandbox catches
-	 * fatals during the activation include but not those that fire on a
-	 * later request (init/admin_init), so we run a loopback health check
-	 * and auto-deactivate on failure to keep wp-admin reachable.
-	 */
-	public function handle_activate_plugin(): void {
-		$this->verify();
-		$plugin = $this->require_param( 'plugin' );
-		$reason = $this->post_param( 'reason' );
-		$result = $this->execute_activate( $plugin, $reason );
-		if ( is_wp_error( $result ) ) {
-			wp_send_json_error( array( 'message' => $result->get_error_message() ) );
-			return;
-		}
-		wp_send_json_success( $result );
-	}
-
-	/**
-	 * Deactivate a plugin after human approval.
-	 */
-	public function handle_deactivate_plugin(): void {
-		$this->verify();
-		$plugin = $this->require_param( 'plugin' );
-		$reason = $this->post_param( 'reason' );
-		$result = $this->execute_deactivate( $plugin, $reason );
-		if ( is_wp_error( $result ) ) {
-			wp_send_json_error( array( 'message' => $result->get_error_message() ) );
-			return;
-		}
-		wp_send_json_success( $result );
 	}
 
 	/**

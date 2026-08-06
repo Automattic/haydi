@@ -332,22 +332,8 @@
     background: #fff;
 }
 
-/* All proposal sections share the same base — they are siblings inside the
-   editor panel body and only one is visible at any time. The flex+min-height
-   pair lets the visible section claim the full panel body and lets its inner
-   diff/code/SQL block scroll instead of clipping. ------------------------- */
-#wpc-query-section,
-#wpc-delete-section,
-#wpc-move-section,
-#wpc-copy-section,
-#wpc-rmdir-section,
-#wpc-install-section,
-#wpc-activate-section,
-#wpc-deactivate-section,
-#wpc-action-section,
-#wpc-php-section,
-#wpc-restore-section,
-#wpc-proposal-section {
+/* The approval card fills the panel body while its details remain scrollable. */
+#wpc-action-section {
     flex: 1;
     overflow: auto;
     padding: 14px 14px 14px 17px;
@@ -355,37 +341,19 @@
     border-top: 0;
     background: var(--wpc-proposal-bg, #fff);
     box-shadow: inset 3px 0 0 var(--wpc-proposal-accent, #2271b1);
-}
-
-/* Action risk accents.  The card stays quiet; the color only marks intent. */
-#wpc-query-section,
-#wpc-php-section {
-    --wpc-proposal-accent: #b26200;
-    --wpc-proposal-bg: #fffaf2;
-}
-
-#wpc-move-section,
-#wpc-copy-section,
-#wpc-install-section,
-#wpc-activate-section,
-#wpc-action-section,
-#wpc-proposal-section {
     --wpc-proposal-accent: #2271b1;
     --wpc-proposal-bg: #f8fbff;
 }
 
-#wpc-delete-section,
-#wpc-rmdir-section,
-#wpc-deactivate-section {
-    --wpc-proposal-accent: #d63638;
-    --wpc-proposal-bg: #fff8f8;
+/* Action risk accents. The card stays quiet; the color only marks intent. */
+#wpc-action-section.is-warning {
+    --wpc-proposal-accent: #b26200;
+    --wpc-proposal-bg: #fffaf2;
 }
 
-/* Write proposal hosts a unified diff that should grow — make it a column
-   flex container so #wpc-diff-unified's flex: 1 actually expands. */
-#wpc-proposal-section {
-    display: flex;
-    flex-direction: column;
+#wpc-action-section.is-danger {
+    --wpc-proposal-accent: #d63638;
+    --wpc-proposal-bg: #fff8f8;
 }
 
 .wpc-proposal-header {
@@ -468,10 +436,6 @@
     color: #646970;
     margin: 0 0 12px;
     line-height: 1.5;
-}
-
-#wpc-install-reason {
-    display: none;
 }
 
 .wpc-diff-wrap {

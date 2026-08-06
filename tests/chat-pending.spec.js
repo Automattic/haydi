@@ -167,14 +167,11 @@ test.describe('Chat — pending proposal handling', () => {
                     text:     'I will list categories first.',
                     messages: echoed,
                     pending_action: {
-                        tool_use_id:  TOOL_USE_ID,
-                        tool_name:    'run_query',
-                        label:        'Run SQL Query',
-                        ajax_action:  'haydi_execute_query',
-                        payload_keys: ['sql', 'reason'],
-                        sql:          'SELECT 1',
-                        reason:       'inspect categories',
-                        pre_results:  [],
+                        tool_use_id: TOOL_USE_ID,
+                        tool_name:   'run_query',
+                        label:       'Run SQL Query',
+                        arguments:   { sql: 'SELECT 1', reason: 'inspect categories' },
+                        pre_results: [],
                     },
                 });
             }
@@ -219,6 +216,7 @@ test.describe('Chat — pending proposal handling', () => {
             .filter((b) => b.type === 'tool_result')
             .map((b) => b.tool_use_id);
         expect(toolResultIds).toContain(TOOL_USE_ID);
+        expect(last.content.find((b) => b.type === 'tool_result').name).toBe('run_query');
 
         const textBlocks = last.content
             .filter((b) => b.type === 'text')
@@ -266,14 +264,11 @@ test.describe('Chat — pending proposal handling', () => {
                         text:     'Running PHP.',
                         messages: echoed,
                         pending_action: {
-                            tool_use_id:  TOOL_USE_ID,
-                            tool_name:    'run_php',
-                            label:        'Run PHP',
-                            ajax_action:  'haydi_run_php',
-                            payload_keys: ['code', 'reason'],
-                            code:         'bad_fn();',
-                            reason:       'test',
-                            pre_results:  [],
+                            tool_use_id: TOOL_USE_ID,
+                            tool_name:   'run_php',
+                            label:       'Run PHP',
+                            arguments:   { code: 'bad_fn();', reason: 'test' },
+                            pre_results: [],
                         },
                     });
                 }
@@ -285,7 +280,9 @@ test.describe('Chat — pending proposal handling', () => {
                 });
             }
 
-            if (action === 'haydi_run_php') {
+            if (action === 'haydi_execute_approved_tool') {
+                expect(params.get('tool_name')).toBe('run_php');
+                expect(JSON.parse(params.get('arguments') || '{}')).toEqual({ code: 'bad_fn();', reason: 'test' });
                 return route.fulfill({
                     status:      200,
                     contentType: 'application/json',
@@ -320,7 +317,286 @@ test.describe('Chat — pending proposal handling', () => {
         const toolResults = last.content.filter((b) => b.type === 'tool_result');
         expect(toolResults).toHaveLength(1);
         expect(toolResults[0].tool_use_id).toBe(TOOL_USE_ID);
+        expect(toolResults[0].name).toBe('run_php');
         expect(toolResults[0].content).toMatch(/PHP error/);
+
+        await ctx.close();
+    });
+
+    test('catalog approval uses the generic endpoint and preserves provider Tool identity', async ({ browser }) => {
+        const ctx  = await browser.newContext({ storageState: AUTH_FILE });
+        const page = await ctx.newPage();
+
+        await page.goto(PLUGIN_URL);
+        await setupPage(page);
+        page.on('dialog', (dialog) => dialog.accept());
+
+        let chatCalls  = 0;
+        let secondMsgs = null;
+        let applyCalls = 0;
+
+        await page.route('**/admin-ajax.php', async (route) => {
+            const params = new URLSearchParams(route.request().postData() || '');
+            const action = params.get('action');
+
+            if (isChatAction(action)) {
+                chatCalls++;
+                const reqMessages = JSON.parse(params.get('messages') || '[]');
+                if (chatCalls === 1) {
+                    return fulfillChat(route, action, {
+                        text:     'I can install that after approval.',
+                        messages: reqMessages.concat([{
+                            role:    'assistant',
+                            content: [{
+                                type:  'tool_use',
+                                id:    TOOL_USE_ID,
+                                name:  'install_plugin',
+                                input: {
+                                    slug:           'contact-form-7',
+                                    reason:         'Add a contact form.',
+                                    legacy_adapter: true,
+                                    ajax_action:    'haydi_should_not_run',
+                                },
+                            }],
+                        }]),
+                        pending_action: {
+                            tool_use_id: TOOL_USE_ID,
+                            tool_name:   'install_plugin',
+                            label:       'Install Plugin',
+                            arguments: {
+                                slug:           'contact-form-7',
+                                reason:         'Add a contact form.',
+                                legacy_adapter: true,
+                                ajax_action:    'haydi_should_not_run',
+                            },
+                            pre_results: [],
+                        },
+                    });
+                }
+
+                secondMsgs = reqMessages;
+                return fulfillChat(route, action, {
+                    text:     'Installed.',
+                    messages: reqMessages.concat([{ role: 'assistant', content: 'Installed.' }]),
+                });
+            }
+
+            if (action === 'haydi_execute_approved_tool') {
+                applyCalls++;
+                expect(params.get('tool_name')).toBe('install_plugin');
+                expect(JSON.parse(params.get('arguments') || '{}')).toEqual({
+                    slug:           'contact-form-7',
+                    reason:         'Add a contact form.',
+                    legacy_adapter: true,
+                    ajax_action:    'haydi_should_not_run',
+                });
+                return route.fulfill({
+                    status:      200,
+                    contentType: 'application/json',
+                    body:        JSON.stringify({
+                        success: true,
+                        data:    {
+                            tool_name: 'install_plugin',
+                            result: {
+                                slug:        'contact-form-7',
+                                plugin_file: 'contact-form-7/wp-contact-form-7.php',
+                            },
+                            tool_result: 'SERVER_TOOL_RESULT',
+                        },
+                    }),
+                });
+            }
+
+            return route.continue();
+        });
+
+        await page.fill('#wpc-chat-input', 'install a contact form plugin');
+        await page.click('#wpc-btn-send');
+
+        await expect(page.locator('#wpc-action-section')).toBeVisible();
+        await expect(page.locator('#wpc-action-label')).toHaveText('Install Plugin');
+        await expect(page.locator('#wpc-action-target')).toHaveText('contact-form-7');
+        await expect(page.locator('#wpc-action-details')).toBeHidden();
+        await expect(page.locator('#wpc-btn-confirm-action-label')).toHaveText('Install Plugin');
+
+        await page.click('#wpc-btn-confirm-action');
+        await expect.poll(() => applyCalls).toBe(1);
+        await expect.poll(() => chatCalls).toBe(2);
+        await expect(page.locator('.wpc-message--assistant').filter({ hasText: 'contact-form-7/wp-contact-form-7.php' })).toBeVisible();
+
+        const last = secondMsgs[secondMsgs.length - 1];
+        const result = last.content.find((block) => block.type === 'tool_result' && block.tool_use_id === TOOL_USE_ID);
+        expect(result.name).toBe('install_plugin');
+        expect(result.content).toBe('SERVER_TOOL_RESULT');
+
+        await ctx.close();
+    });
+
+    test('declining the generic card resolves the exact provider Tool call without executing it', async ({ browser }) => {
+        const ctx  = await browser.newContext({ storageState: AUTH_FILE });
+        const page = await ctx.newPage();
+
+        await page.goto(PLUGIN_URL);
+        await setupPage(page);
+
+        let chatCalls  = 0;
+        let applyCalls = 0;
+        let secondMsgs = null;
+
+        await page.route('**/admin-ajax.php', async (route) => {
+            const params = new URLSearchParams(route.request().postData() || '');
+            const action = params.get('action');
+
+            if (isChatAction(action)) {
+                chatCalls++;
+                const reqMessages = JSON.parse(params.get('messages') || '[]');
+                if (chatCalls === 1) {
+                    return fulfillChat(route, action, {
+                        text:     '',
+                        messages: reqMessages.concat([{
+                            role:    'assistant',
+                            content: [{
+                                type:  'tool_use',
+                                id:    TOOL_USE_ID,
+                                name:  'deactivate_plugin',
+                                input: { plugin: 'demo/demo.php', reason: 'No longer needed.' },
+                            }],
+                        }]),
+                        pending_action: {
+                            tool_use_id: TOOL_USE_ID,
+                            tool_name:   'deactivate_plugin',
+                            label:       'Deactivate Plugin',
+                            arguments:   { plugin: 'demo/demo.php', reason: 'No longer needed.' },
+                            pre_results: [],
+                        },
+                    });
+                }
+
+                secondMsgs = reqMessages;
+                return fulfillChat(route, action, {
+                    text:     'Understood.',
+                    messages: reqMessages.concat([{ role: 'assistant', content: 'Understood.' }]),
+                });
+            }
+
+            if (action === 'haydi_execute_approved_tool') {
+                applyCalls++;
+                return route.fulfill({
+                    status:      500,
+                    contentType: 'application/json',
+                    body:        JSON.stringify({ success: false, data: { message: 'Decline must not execute.' } }),
+                });
+            }
+            return route.continue();
+        });
+
+        await page.fill('#wpc-chat-input', 'deactivate demo');
+        await page.click('#wpc-btn-send');
+        await expect(page.locator('#wpc-action-section')).toBeVisible();
+        await expect(page.locator('#wpc-action-section')).toHaveClass(/is-danger/);
+        await page.click('#wpc-btn-cancel-action');
+
+        await expect.poll(() => chatCalls).toBe(2);
+        expect(applyCalls).toBe(0);
+        await expect(page.locator('#wpc-action-section')).toBeHidden();
+
+        const last = secondMsgs[secondMsgs.length - 1];
+        const result = last.content.find((block) => block.type === 'tool_result');
+        expect(result.tool_use_id).toBe(TOOL_USE_ID);
+        expect(result.name).toBe('deactivate_plugin');
+        expect(result.content).toContain('cancelled this deactivate plugin');
+
+        await ctx.close();
+    });
+
+    test('legacy pending_action uses its declared AJAX Adapter with flattened arguments', async ({ browser }) => {
+        const ctx  = await browser.newContext({ storageState: AUTH_FILE });
+        const page = await ctx.newPage();
+
+        await page.goto(PLUGIN_URL);
+        await setupPage(page);
+
+        let chatCalls  = 0;
+        let legacyHits = 0;
+        let secondMsgs = null;
+
+        await page.route('**/admin-ajax.php', async (route) => {
+            const params = new URLSearchParams(route.request().postData() || '');
+            const action = params.get('action');
+
+            if (isChatAction(action)) {
+                chatCalls++;
+                const reqMessages = JSON.parse(params.get('messages') || '[]');
+                if (chatCalls === 1) {
+                    return fulfillChat(route, action, {
+                        text:     '',
+                        messages: reqMessages.concat([{
+                            role:    'assistant',
+                            content: [{
+                                type:  'tool_use',
+                                id:    TOOL_USE_ID,
+                                name:  'legacy_clear_cache',
+                                input: { cache: 'pages', reason: 'Refresh stale pages.' },
+                            }],
+                        }]),
+                        pending_action: {
+                            tool_use_id:  TOOL_USE_ID,
+                            tool_name:    'legacy_clear_cache',
+                            label:        'Clear Cache',
+                            legacy_adapter: true,
+                            ajax_action:  'haydi_legacy_clear_cache',
+                            payload_keys: ['cache', 'reason'],
+                            cache:        'pages',
+                            reason:       'Refresh stale pages.',
+                            pre_results:  [{
+                                type:        'tool_result',
+                                tool_use_id: 'read_before_approval',
+                                name:        'read_status',
+                                content:     'warm',
+                            }],
+                        },
+                    });
+                }
+
+                secondMsgs = reqMessages;
+                return fulfillChat(route, action, {
+                    text:     'Cache cleared.',
+                    messages: reqMessages.concat([{ role: 'assistant', content: 'Cache cleared.' }]),
+                });
+            }
+
+            if (action === 'haydi_legacy_clear_cache') {
+                legacyHits++;
+                expect(params.get('cache')).toBe('pages');
+                expect(params.get('reason')).toBe('Refresh stale pages.');
+                expect(params.get('tool_name')).toBeNull();
+                expect(params.get('arguments')).toBeNull();
+                return route.fulfill({
+                    status:      200,
+                    contentType: 'application/json',
+                    body:        JSON.stringify({
+                        success: true,
+                        data:    { result: 'Cache cleared.' },
+                    }),
+                });
+            }
+
+            return route.continue();
+        });
+
+        await page.fill('#wpc-chat-input', 'clear stale cache');
+        await page.click('#wpc-btn-send');
+        await expect(page.locator('#wpc-action-section')).toBeVisible();
+        await page.click('#wpc-btn-confirm-action');
+
+        await expect.poll(() => legacyHits).toBe(1);
+        await expect.poll(() => chatCalls).toBe(2);
+
+        const last = secondMsgs[secondMsgs.length - 1];
+        const results = last.content.filter((block) => block.type === 'tool_result');
+        expect(results.map((block) => block.tool_use_id)).toEqual(['read_before_approval', TOOL_USE_ID]);
+        expect(results[1].name).toBe('legacy_clear_cache');
+        expect(results[1].content).toContain('Cache cleared.');
 
         await ctx.close();
     });
@@ -355,14 +631,11 @@ test.describe('Chat — pending proposal handling', () => {
                         text:     '',
                         messages: echoed,
                         pending_action: {
-                            tool_use_id:  TOOL_USE_ID,
-                            tool_name:    'run_query',
-                            label:        'Run SQL Query',
-                            ajax_action:  'haydi_execute_query',
-                            payload_keys: ['sql', 'reason'],
-                            sql:          'SELECT 1',
-                            reason:       'r',
-                            pre_results:  [],
+                            tool_use_id: TOOL_USE_ID,
+                            tool_name:   'run_query',
+                            label:       'Run SQL Query',
+                            arguments:   { sql: 'SELECT 1', reason: 'r' },
+                            pre_results: [],
                         },
                     });
                 }
@@ -372,8 +645,10 @@ test.describe('Chat — pending proposal handling', () => {
                 });
             }
 
-            if (action === 'haydi_execute_query') {
+            if (action === 'haydi_execute_approved_tool') {
                 executeQueryHit++;
+                expect(params.get('tool_name')).toBe('run_query');
+                expect(JSON.parse(params.get('arguments') || '{}')).toEqual({ sql: 'SELECT 1', reason: 'r' });
                 // Hold the response open until the test releases it.
                 await new Promise((res) => { resolveQuery = res; });
                 return route.fulfill({
@@ -381,7 +656,11 @@ test.describe('Chat — pending proposal handling', () => {
                     contentType: 'application/json',
                     body:        JSON.stringify({
                         success: true,
-                        data:    { type: 'select', rows: [], count: 0, truncated: false, result: '[]' },
+                        data:    {
+                            tool_name:   'run_query',
+                            result:      { type: 'select', rows: [], count: 0, truncated: false, result: '[]' },
+                            tool_result: '[]',
+                        },
                     }),
                 });
             }

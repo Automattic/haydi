@@ -96,20 +96,21 @@ $tracks_enabled     = (bool) get_option( 'haydi_enable_tracks', false );
 				</span>
 			</div>
 			<div class="wpc-panel__body">
-				<!-- Built-in action proposal (hidden until an action is proposed) -->
-				<div id="wpc-action-section" class="wpc-hidden">
+				<!-- One approval card; presentation changes with the proposed Tool. -->
+				<div id="wpc-action-section" class="wpc-approval-section wpc-hidden">
 					<div class="wpc-proposal-header">
-						<span class="dashicons dashicons-admin-tools"></span>
+						<span id="wpc-action-icon" class="dashicons dashicons-admin-tools"></span>
 						<strong id="wpc-action-label"></strong>
 					</div>
+					<p id="wpc-action-target" class="wpc-proposal-path wpc-hidden"></p>
 					<p id="wpc-action-reason" class="wpc-proposal-reason"></p>
-					<details class="wpc-technical-details">
+					<details id="wpc-action-details" class="wpc-technical-details">
 						<summary><?php esc_html_e( 'Technical details', 'haydi' ); ?></summary>
 						<pre id="wpc-action-payload" class="wpc-diff wpc-diff--after" style="max-height:200px;"></pre>
 					</details>
 					<div class="wpc-proposal-actions">
 						<button id="wpc-btn-confirm-action" class="button button-primary">
-							<?php esc_html_e( 'Approve', 'haydi' ); ?>
+							<span id="wpc-btn-confirm-action-label"><?php esc_html_e( 'Approve', 'haydi' ); ?></span>
 						</button>
 						<button id="wpc-btn-cancel-action" class="button">
 							<?php esc_html_e( 'Decline', 'haydi' ); ?>
@@ -117,64 +118,6 @@ $tracks_enabled     = (bool) get_option( 'haydi_enable_tracks', false );
 						<span id="wpc-action-status" class="wpc-apply-status"></span>
 					</div>
 				</div>
-
-				<!-- Proposed plugin install (hidden until the AI proposes install_plugin) -->
-				<div id="wpc-install-section" class="wpc-hidden">
-					<div class="wpc-proposal-header">
-						<span class="dashicons dashicons-download"></span>
-						<strong><?php esc_html_e( 'Install plugin', 'haydi' ); ?></strong>
-					</div>
-					<p id="wpc-install-slug" class="wpc-proposal-path"></p>
-					<p id="wpc-install-reason" class="wpc-proposal-reason"></p>
-					<div class="wpc-proposal-actions">
-						<button id="wpc-btn-confirm-install" class="button button-primary">
-							<?php esc_html_e( 'Install Plugin', 'haydi' ); ?>
-						</button>
-						<button id="wpc-btn-cancel-install" class="button">
-							<?php esc_html_e( 'Cancel', 'haydi' ); ?>
-						</button>
-						<span id="wpc-install-status" class="wpc-apply-status"></span>
-					</div>
-				</div>
-
-				<!-- Proposed plugin activation (hidden until the AI proposes activate_plugin) -->
-				<div id="wpc-activate-section" class="wpc-hidden">
-					<div class="wpc-proposal-header">
-						<span class="dashicons dashicons-yes-alt"></span>
-						<strong><?php esc_html_e( 'Activate plugin', 'haydi' ); ?></strong>
-					</div>
-					<p id="wpc-activate-plugin" class="wpc-proposal-path"></p>
-					<p id="wpc-activate-reason" class="wpc-proposal-reason"></p>
-					<div class="wpc-proposal-actions">
-						<button id="wpc-btn-confirm-activate" class="button button-primary">
-							<?php esc_html_e( 'Activate Plugin', 'haydi' ); ?>
-						</button>
-						<button id="wpc-btn-cancel-activate" class="button">
-							<?php esc_html_e( 'Cancel', 'haydi' ); ?>
-						</button>
-						<span id="wpc-activate-status" class="wpc-apply-status"></span>
-					</div>
-				</div>
-
-				<!-- Proposed plugin deactivation (hidden until the AI proposes deactivate_plugin) -->
-				<div id="wpc-deactivate-section" class="wpc-hidden">
-					<div class="wpc-proposal-header wpc-delete-header">
-						<span class="dashicons dashicons-dismiss"></span>
-						<strong><?php esc_html_e( 'Deactivate plugin', 'haydi' ); ?></strong>
-					</div>
-					<p id="wpc-deactivate-plugin" class="wpc-proposal-path"></p>
-					<p id="wpc-deactivate-reason" class="wpc-proposal-reason"></p>
-					<div class="wpc-proposal-actions">
-						<button id="wpc-btn-confirm-deactivate" class="button button-primary wpc-btn-danger">
-							<?php esc_html_e( 'Deactivate Plugin', 'haydi' ); ?>
-						</button>
-						<button id="wpc-btn-cancel-deactivate" class="button">
-							<?php esc_html_e( 'Cancel', 'haydi' ); ?>
-						</button>
-						<span id="wpc-deactivate-status" class="wpc-apply-status"></span>
-					</div>
-				</div>
-
 			</div>
 		</div>
 

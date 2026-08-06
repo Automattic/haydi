@@ -12,6 +12,7 @@ final class Haydi_Tool_Catalog {
 
 	private const EFFECT_AUTOMATIC = 'automatic';
 	private const EFFECT_APPROVAL  = 'approval';
+	private const APPROVAL_ACTION  = 'haydi_execute_approved_tool';
 
 	/** @var array<string, array> Tool definitions keyed by canonical name. */
 	private array $tools = array();
@@ -228,28 +229,48 @@ final class Haydi_Tool_Catalog {
 			return $this->action_proposal( $definition, $external_name, $canonical_arguments, $activity );
 		}
 
-		try {
-			$result = ( $definition['implementation'] )( $canonical_arguments );
-			if ( is_wp_error( $result ) ) {
-				return $result;
-			}
+		return $this->execute_definition( $canonical, $definition, $surface, $canonical_arguments, $activity );
+	}
 
-			return $this->result_outcome( $canonical, $definition, $surface, $result, $activity );
-		} catch ( Throwable $throwable ) {
-			if ( null !== $this->logger ) {
-				try {
-					$this->logger->log(
-						'tool_execution_failed',
-						$canonical,
-						get_class( $throwable ) . ': ' . $throwable->getMessage()
-					);
-				} catch ( Throwable $logging_failure ) {
-					// A logging failure must not replace or expose the original error.
-					unset( $logging_failure );
-				}
-			}
-			return new WP_Error( 'tool_execution_failed', 'Tool execution failed.' );
+	/**
+	 * Execute a catalog-native Action Proposal after the browser Adapter has
+	 * authenticated an explicit human approval.
+	 *
+	 * Only approval-gated Tools exposed to chat can cross this Interface. The
+	 * caller cannot use it to invoke automatic or MCP-only Tools.
+	 *
+	 * @param string $external_name Public chat Tool name from the Action Proposal.
+	 * @param array  $arguments     Action Proposal arguments.
+	 * @return array|WP_Error Tool Execution outcome, including raw `data`.
+	 */
+	public function execute_approved( string $external_name, array $arguments ): array|WP_Error {
+		$canonical  = $this->aliases[ self::CHAT ][ $external_name ] ?? null;
+		$definition = null !== $canonical ? $this->tools[ $canonical ] : null;
+
+		if ( null === $definition ) {
+			return new WP_Error( 'unknown_tool', "Unknown tool: {$external_name}" );
 		}
+		if ( self::EFFECT_APPROVAL !== $definition['effect'] ) {
+			return new WP_Error( 'tool_not_approvable', "Tool does not accept browser approval: {$external_name}" );
+		}
+		if ( ! $this->is_available( $definition, self::CHAT ) ) {
+			return new WP_Error( 'tool_unavailable', "Tool is unavailable: {$external_name}" );
+		}
+
+		$canonical_arguments = $this->normalize_arguments( $definition, self::CHAT, $arguments );
+		$activity            = array(
+			'name'   => $canonical,
+			'label'  => (string) ( $definition['activity_label'] ?? $this->humanize_name( $canonical ) ),
+			'effect' => self::EFFECT_APPROVAL,
+		);
+
+		return $this->execute_definition(
+			$canonical,
+			$definition,
+			self::CHAT,
+			$canonical_arguments,
+			$activity
+		);
 	}
 
 	/**
@@ -273,7 +294,7 @@ final class Haydi_Tool_Catalog {
 			$proposals[ $public_name ] = array(
 				'label'            => (string) ( $proposal['label'] ?? $this->humanize_name( $name ) ),
 				'fields'           => array_keys( (array) $declaration['inputSchema']['properties'] ),
-				'ajax_action'      => (string) ( $proposal['ajax_action'] ?? '' ),
+				'ajax_action'      => self::APPROVAL_ACTION,
 				'log_action'       => (string) ( $proposal['log_action'] ?? '' ),
 				'log_path_field'   => (string) ( $proposal['log_path_field'] ?? '' ),
 				'tool_description' => sprintf(
@@ -450,19 +471,11 @@ final class Haydi_Tool_Catalog {
 
 		if ( self::EFFECT_APPROVAL === $effect && false !== ( $projections[ self::CHAT ] ?? false ) ) {
 			$proposal = $definition['proposal'];
-			foreach ( array( 'label', 'ajax_action', 'log_action' ) as $field ) {
+			foreach ( array( 'label', 'log_action' ) as $field ) {
 				if ( '' === (string) ( $proposal[ $field ] ?? '' ) ) {
 					// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Internal exception text is never rendered.
 					throw new InvalidArgumentException( "Haydi approval tool '{$name}' requires proposal {$field}." );
 				}
-			}
-			if ( ! $this->is_valid_identifier( (string) $proposal['ajax_action'] ) ) {
-				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Internal exception text is never rendered.
-				throw new InvalidArgumentException( "Haydi approval tool '{$name}' has an invalid AJAX action." );
-			}
-			if ( isset( $proposal['response_key'] ) && ! $this->is_valid_identifier( (string) $proposal['response_key'] ) ) {
-				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Internal exception text is never rendered.
-				throw new InvalidArgumentException( "Haydi approval tool '{$name}' has an invalid response key." );
 			}
 			$path_field = (string) ( $proposal['log_path_field'] ?? '' );
 			if ( '' !== $path_field && ! array_key_exists( $path_field, $schema['properties'] ) ) {
@@ -474,10 +487,6 @@ final class Haydi_Tool_Catalog {
 
 	private function is_valid_tool_name( string $name ): bool {
 		return 1 === preg_match( '/^[A-Za-z_][A-Za-z0-9_-]{0,63}$/', $name );
-	}
-
-	private function is_valid_identifier( string $name ): bool {
-		return '' !== $name && 1 === preg_match( '/^[A-Za-z0-9_-]+$/', $name );
 	}
 
 	private function project_declaration( array $definition, string $surface ): array {
@@ -537,29 +546,20 @@ final class Haydi_Tool_Catalog {
 			// The provider transcript must answer the exact projected name that
 			// appeared in the model's Tool call, not the canonical catalog name.
 			'tool_name' => $external_name,
+			'label'     => (string) ( $proposal['label'] ?? $this->humanize_name( $definition['name'] ) ),
+			'arguments' => $arguments,
 		);
-		foreach ( array_keys( $definition['input_schema']['properties'] ) as $field ) {
-			$payload[ $field ] = $arguments[ $field ] ?? '';
-		}
-
-		$response_key = (string) ( $proposal['response_key'] ?? 'pending_action' );
-		if ( 'pending_action' === $response_key ) {
-			$payload['label']        = (string) ( $proposal['label'] ?? $this->humanize_name( $definition['name'] ) );
-			$payload['ajax_action']  = (string) ( $proposal['ajax_action'] ?? '' );
-			$payload['payload_keys'] = array_keys( $definition['input_schema']['properties'] );
-		}
 
 		$path_field = (string) ( $proposal['log_path_field'] ?? '' );
 		return array(
-			'kind'         => 'action_proposal',
-			'name'         => $definition['name'],
-			'response_key' => $response_key,
-			'payload'      => $payload,
-			'activity'     => $activity,
-			'audit'        => array(
+			'kind'     => 'action_proposal',
+			'name'     => $definition['name'],
+			'payload'  => $payload,
+			'activity' => $activity,
+			'audit'    => array(
 				'action' => (string) ( $proposal['log_action'] ?? '' ),
-				'path'   => '' !== $path_field ? (string) ( $payload[ $path_field ] ?? '' ) : '',
-				'reason' => (string) ( $payload['reason'] ?? '' ),
+				'path'   => '' !== $path_field ? (string) ( $arguments[ $path_field ] ?? '' ) : '',
+				'reason' => (string) ( $arguments['reason'] ?? '' ),
 			),
 		);
 	}
@@ -578,23 +578,59 @@ final class Haydi_Tool_Catalog {
 		foreach ( (array) ( $proposal['fields'] ?? array() ) as $field ) {
 			$payload[ $field ] = $arguments[ $field ] ?? '';
 		}
-		$payload['label']        = (string) ( $proposal['label'] ?? $this->humanize_name( $name ) );
-		$payload['ajax_action']  = (string) ( $proposal['ajax_action'] ?? '' );
-		$payload['payload_keys'] = (array) ( $proposal['fields'] ?? array() );
+		$payload['label']          = (string) ( $proposal['label'] ?? $this->humanize_name( $name ) );
+		$payload['legacy_adapter'] = true;
+		$payload['ajax_action']    = (string) ( $proposal['ajax_action'] ?? '' );
+		$payload['payload_keys']   = (array) ( $proposal['fields'] ?? array() );
 
 		$path_field = (string) ( $proposal['log_path_field'] ?? '' );
 		return array(
-			'kind'         => 'action_proposal',
-			'name'         => $name,
-			'response_key' => 'pending_action',
-			'payload'      => $payload,
-			'activity'     => $activity,
-			'audit'        => array(
+			'kind'     => 'action_proposal',
+			'name'     => $name,
+			'payload'  => $payload,
+			'activity' => $activity,
+			'audit'    => array(
 				'action' => (string) ( $proposal['log_action'] ?? '' ),
 				'path'   => '' !== $path_field ? (string) ( $payload[ $path_field ] ?? '' ) : '',
 				'reason' => (string) ( $payload['reason'] ?? '' ),
 			),
 		);
+	}
+
+	/**
+	 * Invoke one Tool Implementation and convert its value to a Tool Execution.
+	 *
+	 * All authorized execution paths cross this one exception-handling path.
+	 */
+	private function execute_definition(
+		string $canonical,
+		array $definition,
+		string $surface,
+		array $arguments,
+		array $activity
+	): array|WP_Error {
+		try {
+			$result = ( $definition['implementation'] )( $arguments );
+			if ( is_wp_error( $result ) ) {
+				return $result;
+			}
+
+			return $this->result_outcome( $canonical, $definition, $surface, $result, $activity );
+		} catch ( Throwable $throwable ) {
+			if ( null !== $this->logger ) {
+				try {
+					$this->logger->log(
+						'tool_execution_failed',
+						$canonical,
+						get_class( $throwable ) . ': ' . $throwable->getMessage()
+					);
+				} catch ( Throwable $logging_failure ) {
+					// A logging failure must not replace or expose the original error.
+					unset( $logging_failure );
+				}
+			}
+			return new WP_Error( 'tool_execution_failed', 'Tool execution failed.' );
+		}
 	}
 
 	private function result_outcome(
@@ -607,6 +643,7 @@ final class Haydi_Tool_Catalog {
 		if ( is_wp_error( $result ) ) {
 			return $result;
 		}
+		$raw_result = $result;
 
 		if ( null !== $definition && isset( $definition['presenters'][ $surface ] ) ) {
 			$result = ( $definition['presenters'][ $surface ] )( $result );
@@ -639,6 +676,7 @@ final class Haydi_Tool_Catalog {
 			'kind'     => 'result',
 			'name'     => $canonical,
 			'content'  => $content,
+			'data'     => $raw_result,
 			'activity' => $activity,
 		);
 	}

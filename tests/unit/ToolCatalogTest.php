@@ -116,6 +116,7 @@ final class ToolCatalogTest extends TestCase {
 		$this->assertSame( 'result', $outcome['kind'] );
 		$this->assertSame( 'echo_value', $outcome['name'] );
 		$this->assertSame( '{"echo":"hello"}', $outcome['content'] );
+		$this->assertSame( array( 'echo' => 'hello' ), $outcome['data'] );
 	}
 
 	public function test_non_string_scalar_results_are_json_encoded(): void {
@@ -148,7 +149,6 @@ final class ToolCatalogTest extends TestCase {
 				'effect'       => 'approval',
 				'proposal'     => array(
 					'label'          => 'Clear Cache',
-					'ajax_action'    => 'haydi_clear_cache',
 					'log_action'     => 'cache_clear_proposed',
 					'log_path_field' => '',
 				),
@@ -172,9 +172,68 @@ final class ToolCatalogTest extends TestCase {
 		$this->assertSame( 0, $execution_count, 'Chat must never execute an approval-gated Tool Implementation.' );
 		$this->assertIsArray( $outcome );
 		$this->assertSame( 'action_proposal', $outcome['kind'] );
-		$this->assertSame( 'pending_action', $outcome['response_key'] );
-		$this->assertSame( 'clear_cache', $outcome['payload']['tool_name'] );
-		$this->assertSame( 'Refresh stale pages.', $outcome['payload']['reason'] );
+		$this->assertSame(
+			array(
+				'tool_name' => 'clear_cache',
+				'label'     => 'Clear Cache',
+				'arguments' => array( 'reason' => 'Refresh stale pages.' ),
+			),
+			$outcome['payload']
+		);
+	}
+
+	public function test_execute_approved_runs_the_registered_implementation_and_returns_raw_data(): void {
+		$received = null;
+		$catalog  = new Haydi_Tool_Catalog();
+		$catalog->register(
+			array(
+				'name'         => 'clear_cache_internal',
+				'description'  => 'Clear the site cache after approval.',
+				'input_schema' => array(
+					'type'       => 'object',
+					'properties' => array(
+						'reason' => array( 'type' => 'string', 'description' => 'Reason.' ),
+					),
+					'required'   => array( 'reason' ),
+				),
+				'effect'       => 'approval',
+				'proposal'     => array(
+					'label'      => 'Clear Cache',
+					'log_action' => 'cache_clear_proposed',
+				),
+				'projections'  => array(
+					'chat' => array(
+						'name'          => 'clear_cache',
+						'input_aliases' => array( 'why' => 'reason' ),
+					),
+				),
+			),
+			static function ( array $arguments ) use ( &$received ): array {
+				$received = $arguments;
+				return array( 'cleared' => true );
+			}
+		);
+
+		$outcome = $catalog->execute_approved( 'clear_cache', array( 'why' => 'Refresh pages.' ) );
+
+		$this->assertSame( array( 'reason' => 'Refresh pages.' ), $received );
+		$this->assertSame( 'result', $outcome['kind'] );
+		$this->assertSame( 'clear_cache_internal', $outcome['name'] );
+		$this->assertSame( array( 'cleared' => true ), $outcome['data'] );
+		$this->assertSame( '{"cleared":true}', $outcome['content'] );
+	}
+
+	public function test_execute_approved_rejects_automatic_and_unknown_tools(): void {
+		$catalog = new Haydi_Tool_Catalog();
+		$catalog->register( $this->automatic_definition( 'read_cache' ), static fn(): string => 'read' );
+
+		$automatic = $catalog->execute_approved( 'read_cache', array( 'value' => 'x' ) );
+		$unknown   = $catalog->execute_approved( 'missing_tool', array() );
+
+		$this->assertInstanceOf( WP_Error::class, $automatic );
+		$this->assertSame( 'tool_not_approvable', $automatic->get_error_code() );
+		$this->assertInstanceOf( WP_Error::class, $unknown );
+		$this->assertSame( 'unknown_tool', $unknown->get_error_code() );
 	}
 
 	public function test_chat_action_proposal_responds_with_the_projected_tool_name(): void {
@@ -190,7 +249,6 @@ final class ToolCatalogTest extends TestCase {
 				'effect'       => 'approval',
 				'proposal'     => array(
 					'label'       => 'Clear Cache',
-					'ajax_action' => 'haydi_clear_cache',
 					'log_action'  => 'clear_cache_proposed',
 				),
 				'projections'  => array(
@@ -207,6 +265,7 @@ final class ToolCatalogTest extends TestCase {
 		$this->assertSame( 'clear_cache', $outcome['payload']['tool_name'] );
 		$this->assertArrayHasKey( 'clear_cache', $proposals );
 		$this->assertArrayNotHasKey( 'clear_cache_internal', $proposals );
+		$this->assertSame( 'haydi_execute_approved_tool', $proposals['clear_cache']['ajax_action'] );
 	}
 
 	public function test_mcp_projection_aliases_name_and_arguments_for_one_implementation(): void {
@@ -358,8 +417,7 @@ final class ToolCatalogTest extends TestCase {
 			),
 			'effect'       => 'approval',
 			'proposal'     => array(
-				'label'       => 'Incomplete',
-				'ajax_action' => 'haydi_incomplete',
+				'label' => 'Incomplete',
 			),
 			'projections'  => array( 'chat' => true ),
 		);
@@ -489,6 +547,7 @@ final class ToolCatalogTest extends TestCase {
 		);
 
 		$this->assertSame( 'action_proposal', $outcome['kind'] );
+		$this->assertTrue( $outcome['payload']['legacy_adapter'] );
 		$this->assertSame( '/tmp/example.php', $outcome['payload']['path'] );
 	}
 
