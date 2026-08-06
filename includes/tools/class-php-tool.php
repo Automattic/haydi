@@ -5,35 +5,73 @@
 
 defined( 'ABSPATH' ) || exit;
 
-if ( ! function_exists( 'haydi_register_action_proposal' ) || ! class_exists( 'Haydi_Audit_Logger' ) ) {
-	return;
-}
-
-haydi_register_action_proposal(
-	'run_php',
-	array(
-		'label'            => 'Run PHP',
-		'fields'           => array( 'code', 'reason' ),
-		'ajax_action'      => 'haydi_run_php',
-		'log_action'       => 'php_proposed',
-		'log_path_field'   => '',
-		'tool_description' => 'run_php(code, reason) — execute a PHP snippet in the WordPress context; opens an approval UI for the user; output is captured',
-	)
-);
-
-add_filter(
-	'haydi_tool_schemas',
-	static function ( array $schemas ): array {
-		$schemas['run_php'] = array(
-			'description' => 'Execute a PHP code snippet in the WordPress context. Calling this tool opens an approval UI for the user; they see the code and the reason and confirm before execution. Output is captured and returned. Use for tasks that cannot be done via SQL or file writes alone (creating posts/pages, calling WP APIs, etc.). You must invoke this tool to trigger the approval — describing the snippet in plain text does nothing.',
-			'fields'      => array(
-				'code'   => 'PHP code to execute (without an opening <?php tag).',
-				'reason' => 'Human-readable explanation of what this code does and why.',
+/**
+ * Register the PHP Tool Declaration and existing execution Implementation.
+ */
+function haydi_register_php_tool(
+	Haydi_Tool_Catalog $catalog,
+	Haydi_Audit_Logger $logger,
+	Haydi_Health_Check $health
+): void {
+	$catalog->register(
+		array(
+			'name'           => 'run_php',
+			'description'    => 'Execute a PHP code snippet in the WordPress context. Calling this tool opens an approval UI for the user; they see the code and the reason and confirm before execution. Output is captured and returned. Use for tasks that cannot be done via SQL or file writes alone (creating posts/pages, calling WP APIs, etc.). You must invoke this tool to trigger the approval — describing the snippet in plain text does nothing.',
+			'input_schema'   => array(
+				'type'       => 'object',
+				'properties' => array(
+					'code'   => array(
+						'type'        => 'string',
+						'description' => 'PHP code to execute (without an opening <?php tag).',
+					),
+					'reason' => array(
+						'type'        => 'string',
+						'description' => 'Human-readable explanation of what this code does and why.',
+					),
+				),
+				'required'   => array( 'code', 'reason' ),
 			),
-		);
-		return $schemas;
-	}
-);
+			'effect'         => 'approval',
+			'activity_label' => 'Prepared run PHP',
+			'proposal'       => array(
+				'label'          => 'Run PHP',
+				'ajax_action'    => 'haydi_run_php',
+				'log_action'     => 'php_proposed',
+				'log_path_field' => '',
+			),
+			'projections'    => array(
+				'chat' => true,
+				'mcp'  => array(
+					'name'        => 'haydi_run_php',
+					'description' => 'Execute a PHP snippet in the WordPress context. Output is captured and returned.',
+					'required'    => array( 'code' ),
+				),
+			),
+			'presenters'     => array(
+				'mcp' => static fn( array $result ): string => $result['output'],
+			),
+		),
+		static function ( array $arguments ) use ( $logger, $health ): array|WP_Error {
+			$result = haydi_php_execute(
+				trim( (string) ( $arguments['code'] ?? '' ) ),
+				(string) ( $arguments['reason'] ?? '' ),
+				$logger,
+				$health
+			);
+			if ( ! is_wp_error( $result ) ) {
+				return $result;
+			}
+
+			$data   = $result->get_error_data();
+			$output = is_array( $data ) && isset( $data['output'] ) ? (string) $data['output'] : '';
+			return new WP_Error(
+				$result->get_error_code(),
+				$result->get_error_message() . ( '' !== $output ? "\nOutput: {$output}" : '' ),
+				$data
+			);
+		}
+	);
+}
 
 ( static function () {
 	$logger = new Haydi_Audit_Logger();
@@ -68,59 +106,6 @@ add_filter(
 			}
 			wp_send_json_success( $result );
 		}
-	);
-
-	add_filter(
-		'haydi_mcp_tools',
-		static function ( array $tools ) {
-			return array_merge(
-				$tools,
-				array(
-					array(
-						'name'        => 'haydi_run_php',
-						'description' => 'Execute a PHP snippet in the WordPress context. Output is captured and returned.',
-						'inputSchema' => array(
-							'type'       => 'object',
-							'properties' => array(
-								'code'   => array(
-									'type'        => 'string',
-									'description' => 'PHP code to execute (no opening <?php tag).',
-								),
-								'reason' => array(
-									'type'        => 'string',
-									'description' => 'Reason (shown in audit log).',
-								),
-							),
-							'required'   => array( 'code' ),
-						),
-					),
-				)
-			);
-		}
-	);
-
-	add_filter(
-		'haydi_mcp_execute_tool',
-		static function ( $result, string $name, array $args ) use ( $logger, $health ) {
-			if ( null !== $result || 'haydi_run_php' !== $name ) {
-				return $result;
-			}
-			$r = haydi_php_execute(
-				trim( (string) ( $args['code'] ?? '' ) ),
-				(string) ( $args['reason'] ?? '' ),
-				$logger,
-				$health
-			);
-			if ( is_wp_error( $r ) ) {
-				$data   = $r->get_error_data();
-				$output = is_array( $data ) && isset( $data['output'] ) ? $data['output'] : '';
-				$msg    = $r->get_error_message();
-				return new WP_Error( $r->get_error_code(), $msg . ( '' !== $output ? "\nOutput: {$output}" : '' ) );
-			}
-			return $r['output'];
-		},
-		10,
-		3
 	);
 
 	add_action(

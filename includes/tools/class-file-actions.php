@@ -5,166 +5,366 @@
 
 defined( 'ABSPATH' ) || exit;
 
-if ( ! function_exists( 'haydi_register_action_proposal' ) || ! class_exists( 'Haydi_Filesystem_Guard' ) ) {
-	return;
-}
+/**
+ * Register file mutation Tool Declarations and their existing Implementations.
+ */
+function haydi_register_file_action_tools(
+	Haydi_Tool_Catalog $catalog,
+	Haydi_Filesystem_Guard $guard,
+	Haydi_Health_Check $health,
+	Haydi_Audit_Logger $logger
+): void {
+	$mcp_available = static fn(): bool => wp_is_file_mod_allowed( 'plugin_files' ) || wp_is_file_mod_allowed( 'theme_files' );
 
-// Register approval-gated actions.
-haydi_register_action_proposal(
-	'write_file',
-	array(
-		'label'            => 'Write File',
-		'fields'           => array( 'path', 'content', 'reason' ),
-		'ajax_action'      => 'haydi_apply_write',
-		'log_action'       => 'write_proposed',
-		'log_path_field'   => 'path',
-		'tool_description' => 'write_file(path, content, reason) — write a file; opens an approval UI for the user',
-	)
-);
-haydi_register_action_proposal(
-	'edit',
-	array(
-		'label'            => 'Edit File',
-		'fields'           => array( 'filePath', 'oldString', 'newString', 'replaceAll', 'reason' ),
-		'ajax_action'      => 'haydi_edit_file',
-		'log_action'       => 'edit_proposed',
-		'log_path_field'   => 'filePath',
-		'tool_description' => 'edit(filePath, oldString, newString, replaceAll, reason) — exact-string edit of an existing file; opens an approval UI for the user',
-	)
-);
-haydi_register_action_proposal(
-	'delete_file',
-	array(
-		'label'            => 'Delete File',
-		'fields'           => array( 'path', 'reason' ),
-		'ajax_action'      => 'haydi_delete_file',
-		'log_action'       => 'delete_proposed',
-		'log_path_field'   => 'path',
-		'tool_description' => 'delete_file(path, reason) — delete a file; opens an approval UI for the user; a backup is created automatically',
-	)
-);
-haydi_register_action_proposal(
-	'move_file',
-	array(
-		'label'            => 'Move File',
-		'fields'           => array( 'src', 'dest', 'reason' ),
-		'ajax_action'      => 'haydi_move_file',
-		'log_action'       => 'move_proposed',
-		'log_path_field'   => 'src',
-		'tool_description' => 'move_file(src, dest, reason) — move or rename a file; opens an approval UI for the user; a backup of src is created automatically',
-	)
-);
-haydi_register_action_proposal(
-	'copy_file',
-	array(
-		'label'            => 'Copy File',
-		'fields'           => array( 'src', 'dest', 'reason' ),
-		'ajax_action'      => 'haydi_copy_file',
-		'log_action'       => 'copy_proposed',
-		'log_path_field'   => 'src',
-		'tool_description' => 'copy_file(src, dest, reason) — copy a file; opens an approval UI for the user; dest is backed up if it already exists',
-	)
-);
-haydi_register_action_proposal(
-	'delete_dir',
-	array(
-		'label'            => 'Delete Directory',
-		'fields'           => array( 'path', 'reason' ),
-		'ajax_action'      => 'haydi_delete_dir',
-		'log_action'       => 'rmdir_proposed',
-		'log_path_field'   => 'path',
-		'tool_description' => 'delete_dir(path, reason) — recursively delete a directory; opens an approval UI for the user; all files are backed up; root directories cannot be deleted',
-	)
-);
-haydi_register_action_proposal(
-	'restore_backup',
-	array(
-		'label'            => 'Restore Backup',
-		'fields'           => array( 'backup_file', 'original_path', 'reason' ),
-		'ajax_action'      => 'haydi_restore_backup',
-		'log_action'       => 'restore_proposed',
-		'log_path_field'   => 'original_path',
-		'tool_description' => 'restore_backup(backup_file, original_path, reason) — restore a file from a specific backup; opens an approval UI for the user; call list_backups first to get the backup_file name',
-	)
-);
+	$catalog->register(
+		array(
+			'name'           => 'write_file',
+			'description'    => 'Write new content to a file within an allowed root. Calling this tool opens an approval UI for the user; they will see the content and the reason and confirm before it is written. Include the complete file content, not a diff. Only one write per turn is accepted. You must invoke this tool to trigger the approval — describing the change in plain text does nothing.',
+			'input_schema'   => array(
+				'type'       => 'object',
+				'properties' => array(
+					'path'    => array(
+						'type'        => 'string',
+						'description' => 'Absolute filesystem path of the file to write.',
+					),
+					'content' => array(
+						'type'        => 'string',
+						'description' => 'Complete new file content (full replacement, not a diff).',
+					),
+					'reason'  => array(
+						'type'        => 'string',
+						'description' => 'Human-readable explanation of what this change does and why.',
+					),
+				),
+				'required'   => array( 'path', 'content', 'reason' ),
+			),
+			'effect'         => 'approval',
+			'activity_label' => 'Prepared write file',
+			'proposal'       => array(
+				'label'          => 'Write File',
+				'ajax_action'    => 'haydi_apply_write',
+				'log_action'     => 'write_proposed',
+				'log_path_field' => 'path',
+			),
+			'projections'    => array(
+				'chat' => true,
+				'mcp'  => array(
+					'name'        => 'haydi_write_file',
+					'description' => 'Create or overwrite a file inside the allowed roots. PHP syntax is validated before writing.',
+					'required'    => array( 'path', 'content' ),
+					'available'   => $mcp_available,
+				),
+			),
+			'presenters'     => array(
+				'mcp' => static fn( array $result ): string => "File written successfully: {$result['path']}",
+			),
+		),
+		static fn( array $arguments ): array|WP_Error => haydi_file_execute_write(
+			(string) ( $arguments['path'] ?? '' ),
+			(string) ( $arguments['content'] ?? '' ),
+			(string) ( $arguments['reason'] ?? '' ),
+			$guard,
+			$health,
+			$logger
+		)
+	);
 
-// -------------------------------------------------------------------------
-// Tool schemas (AI function declarations)
-// -------------------------------------------------------------------------
+	$catalog->register(
+		array(
+			'name'           => 'edit',
+			'description'    => 'Modify an existing file by exact string replacement. Calling this tool opens an approval UI for the user; they will see the diff and confirm before it is written. Prefer this for small edits to existing files. oldString must be copied exactly from the current file and should match once unless replaceAll is true.',
+			'input_schema'   => array(
+				'type'       => 'object',
+				'properties' => array(
+					'filePath'   => array(
+						'type'        => 'string',
+						'description' => 'Absolute filesystem path of the existing file to edit.',
+					),
+					'oldString'  => array(
+						'type'        => 'string',
+						'description' => 'Exact text currently in the file. Preserve indentation, whitespace, and newlines exactly.',
+					),
+					'newString'  => array(
+						'type'        => 'string',
+						'description' => 'Replacement text. Use an empty string to delete oldString.',
+					),
+					'replaceAll' => array(
+						'type'        => 'boolean',
+						'description' => 'Whether to replace every occurrence of oldString. Defaults to false.',
+					),
+					'reason'     => array(
+						'type'        => 'string',
+						'description' => 'Human-readable explanation of what this edit does and why.',
+					),
+				),
+				'required'   => array( 'filePath', 'oldString', 'newString', 'reason' ),
+			),
+			'effect'         => 'approval',
+			'activity_label' => 'Prepared edit file',
+			'proposal'       => array(
+				'label'          => 'Edit File',
+				'ajax_action'    => 'haydi_edit_file',
+				'log_action'     => 'edit_proposed',
+				'log_path_field' => 'filePath',
+			),
+			'projections'    => array(
+				'chat' => true,
+				'mcp'  => array(
+					'name'          => 'haydi_edit_file',
+					'description'   => 'Exact-string substitution in an existing file.',
+					'input_aliases' => array(
+						'path'        => 'filePath',
+						'old_string'  => 'oldString',
+						'new_string'  => 'newString',
+						'replace_all' => 'replaceAll',
+					),
+					'required'      => array( 'path', 'old_string', 'new_string' ),
+					'available'     => $mcp_available,
+				),
+			),
+			'presenters'     => array(
+				'mcp' => static fn( array $result ): string => "File edited successfully ({$result['matches']} match(es)): {$result['path']}",
+			),
+		),
+		static fn( array $arguments ): array|WP_Error => haydi_file_execute_edit(
+			(string) ( $arguments['filePath'] ?? '' ),
+			(string) ( $arguments['oldString'] ?? '' ),
+			(string) ( $arguments['newString'] ?? '' ),
+			(bool) ( $arguments['replaceAll'] ?? false ),
+			(string) ( $arguments['reason'] ?? '' ),
+			$guard,
+			$health,
+			$logger
+		)
+	);
 
-add_filter(
-	'haydi_tool_schemas',
-	static function ( array $schemas ): array {
-		return array_merge(
-			$schemas,
+	$catalog->register(
+		array(
+			'name'           => 'delete_file',
+			'description'    => 'Delete a file within an allowed root. Calling this tool opens an approval UI for the user; they confirm before deletion. A backup is created automatically. You must invoke this tool to trigger the approval — describing the deletion in plain text does nothing.',
+			'input_schema'   => array(
+				'type'       => 'object',
+				'properties' => array(
+					'path'   => array(
+						'type'        => 'string',
+						'description' => 'Absolute filesystem path of the file to delete.',
+					),
+					'reason' => array(
+						'type'        => 'string',
+						'description' => 'Human-readable explanation of why this file should be deleted.',
+					),
+				),
+				'required'   => array( 'path', 'reason' ),
+			),
+			'effect'         => 'approval',
+			'activity_label' => 'Prepared delete file',
+			'proposal'       => array(
+				'label'          => 'Delete File',
+				'ajax_action'    => 'haydi_delete_file',
+				'log_action'     => 'delete_proposed',
+				'log_path_field' => 'path',
+			),
+			'projections'    => array(
+				'chat' => true,
+				'mcp'  => array(
+					'name'        => 'haydi_delete_file',
+					'description' => 'Delete a file. A backup is created automatically.',
+					'required'    => array( 'path' ),
+					'available'   => $mcp_available,
+				),
+			),
+			'presenters'     => array(
+				'mcp' => static fn( array $result ): string => "File deleted successfully: {$result['path']}",
+			),
+		),
+		static fn( array $arguments ): array|WP_Error => haydi_file_execute_delete(
+			(string) ( $arguments['path'] ?? '' ),
+			'' !== (string) ( $arguments['reason'] ?? '' ) ? (string) $arguments['reason'] : 'MCP-initiated deletion.',
+			$guard,
+			$health,
+			$logger
+		)
+	);
+
+	foreach ( array(
+		'move_file' => array(
+			'label'       => 'Move File',
+			'description' => 'Move or rename a file within the allowed roots. Calling this tool opens an approval UI for the user; they confirm before the move. A backup of the source is created automatically. You must invoke this tool to trigger the approval — describing the move in plain text does nothing.',
+			'mcp_desc'    => 'Move or rename a file.',
+			'mcp_result'  => 'File moved',
+			'ajax_action' => 'haydi_move_file',
+			'log_action'  => 'move_proposed',
+		),
+		'copy_file' => array(
+			'label'       => 'Copy File',
+			'description' => 'Copy a file within the allowed roots. Calling this tool opens an approval UI for the user; they confirm before the copy. The destination is backed up if it already exists. You must invoke this tool to trigger the approval — describing the copy in plain text does nothing.',
+			'mcp_desc'    => 'Copy a file.',
+			'mcp_result'  => 'File copied',
+			'ajax_action' => 'haydi_copy_file',
+			'log_action'  => 'copy_proposed',
+		),
+	) as $name => $config ) {
+		$catalog->register(
 			array(
-				'write_file'     => array(
-					'description' => 'Write new content to a file within an allowed root. Calling this tool opens an approval UI for the user; they will see the content and the reason and confirm before it is written. Include the complete file content, not a diff. Only one write per turn is accepted. You must invoke this tool to trigger the approval — describing the change in plain text does nothing.',
-					'fields'      => array(
-						'path'    => 'Absolute filesystem path of the file to write.',
-						'content' => 'Complete new file content (full replacement, not a diff).',
-						'reason'  => 'Human-readable explanation of what this change does and why.',
-					),
-				),
-				'edit'           => array(
-					'description' => 'Modify an existing file by exact string replacement. Calling this tool opens an approval UI for the user; they will see the diff and confirm before it is written. Prefer this for small edits to existing files. oldString must be copied exactly from the current file and should match once unless replaceAll is true.',
-					'fields'      => array(
-						'filePath'   => 'Absolute filesystem path of the existing file to edit.',
-						'oldString'  => 'Exact text currently in the file. Preserve indentation, whitespace, and newlines exactly.',
-						'newString'  => 'Replacement text. Use an empty string to delete oldString.',
-						'replaceAll' => array(
-							'type'        => 'boolean',
-							'description' => 'Whether to replace every occurrence of oldString. Defaults to false.',
-							'required'    => false,
+				'name'           => $name,
+				'description'    => $config['description'],
+				'input_schema'   => array(
+					'type'       => 'object',
+					'properties' => array(
+						'src'    => array(
+							'type'        => 'string',
+							'description' => 'Absolute filesystem path of the source file.',
 						),
-						'reason'     => 'Human-readable explanation of what this edit does and why.',
+						'dest'   => array(
+							'type'        => 'string',
+							'description' => 'Absolute filesystem path of the destination.',
+						),
+						'reason' => array(
+							'type'        => 'string',
+							'description' => 'Human-readable explanation of why this file operation is needed.',
+						),
+					),
+					'required'   => array( 'src', 'dest', 'reason' ),
+				),
+				'effect'         => 'approval',
+				'activity_label' => 'Prepared ' . strtolower( $config['label'] ),
+				'proposal'       => array(
+					'label'          => $config['label'],
+					'ajax_action'    => $config['ajax_action'],
+					'log_action'     => $config['log_action'],
+					'log_path_field' => 'src',
+				),
+				'projections'    => array(
+					'chat' => true,
+					'mcp'  => array(
+						'name'        => 'haydi_' . $name,
+						'description' => $config['mcp_desc'],
+						'required'    => array( 'src', 'dest' ),
+						'available'   => $mcp_available,
 					),
 				),
-				'delete_file'    => array(
-					'description' => 'Delete a file within an allowed root. Calling this tool opens an approval UI for the user; they confirm before deletion. A backup is created automatically. You must invoke this tool to trigger the approval — describing the deletion in plain text does nothing.',
-					'fields'      => array(
-						'path'   => 'Absolute filesystem path of the file to delete.',
-						'reason' => 'Human-readable explanation of why this file should be deleted.',
-					),
+				'presenters'     => array(
+					'mcp' => static fn( array $result ): string => "{$config['mcp_result']}: {$result['src']} → {$result['dest']}",
 				),
-				'move_file'      => array(
-					'description' => 'Move or rename a file within the allowed roots. Calling this tool opens an approval UI for the user; they confirm before the move. A backup of the source is created automatically. You must invoke this tool to trigger the approval — describing the move in plain text does nothing.',
-					'fields'      => array(
-						'src'    => 'Absolute filesystem path of the source file.',
-						'dest'   => 'Absolute filesystem path of the destination.',
-						'reason' => 'Human-readable explanation of why this file is being moved.',
-					),
-				),
-				'copy_file'      => array(
-					'description' => 'Copy a file within the allowed roots. Calling this tool opens an approval UI for the user; they confirm before the copy. The destination is backed up if it already exists. You must invoke this tool to trigger the approval — describing the copy in plain text does nothing.',
-					'fields'      => array(
-						'src'    => 'Absolute filesystem path of the source file.',
-						'dest'   => 'Absolute filesystem path of the destination.',
-						'reason' => 'Human-readable explanation of why this file is being copied.',
-					),
-				),
-				'delete_dir'     => array(
-					'description' => 'Recursively delete a directory and all its contents. Calling this tool opens an approval UI for the user; they confirm before deletion. All files are backed up automatically. Root directories cannot be deleted. You must invoke this tool to trigger the approval — describing the deletion in plain text does nothing.',
-					'fields'      => array(
-						'path'   => 'Absolute filesystem path of the directory to delete.',
-						'reason' => 'Human-readable explanation of why this directory should be deleted.',
-					),
-				),
-				'restore_backup' => array(
-					'description' => 'Restore a file from a specific backup. Calling this tool opens an approval UI for the user; they confirm before the restore happens. Use list_backups first to find the correct backup_file name. A new backup of the current file is created before restoring so the restore is itself reversible.',
-					'fields'      => array(
-						'backup_file'   => 'The backup filename (e.g. functions.php.1746960123.abc123.bak) as returned by list_backups.',
-						'original_path' => 'Absolute filesystem path where the file should be restored.',
-						'reason'        => 'Human-readable explanation of why this backup is being restored.',
-					),
-				),
-			)
+			),
+			static function ( array $arguments ) use ( $name, $guard, $health, $logger ): array|WP_Error {
+				$function = 'move_file' === $name ? 'haydi_file_execute_move' : 'haydi_file_execute_copy';
+				return $function(
+					(string) ( $arguments['src'] ?? '' ),
+					(string) ( $arguments['dest'] ?? '' ),
+					(string) ( $arguments['reason'] ?? '' ),
+					$guard,
+					$health,
+					$logger
+				);
+			}
 		);
 	}
-);
+
+	$catalog->register(
+		array(
+			'name'           => 'delete_dir',
+			'description'    => 'Recursively delete a directory and all its contents. Calling this tool opens an approval UI for the user; they confirm before deletion. All files are backed up automatically. Root directories cannot be deleted. You must invoke this tool to trigger the approval — describing the deletion in plain text does nothing.',
+			'input_schema'   => array(
+				'type'       => 'object',
+				'properties' => array(
+					'path'   => array(
+						'type'        => 'string',
+						'description' => 'Absolute filesystem path of the directory to delete.',
+					),
+					'reason' => array(
+						'type'        => 'string',
+						'description' => 'Human-readable explanation of why this directory should be deleted.',
+					),
+				),
+				'required'   => array( 'path', 'reason' ),
+			),
+			'effect'         => 'approval',
+			'activity_label' => 'Prepared delete directory',
+			'proposal'       => array(
+				'label'          => 'Delete Directory',
+				'ajax_action'    => 'haydi_delete_dir',
+				'log_action'     => 'rmdir_proposed',
+				'log_path_field' => 'path',
+			),
+			'projections'    => array(
+				'chat' => true,
+				'mcp'  => array(
+					'name'        => 'haydi_delete_directory',
+					'description' => 'Recursively delete a directory.',
+					'required'    => array( 'path' ),
+					'available'   => $mcp_available,
+				),
+			),
+			'presenters'     => array(
+				'mcp' => static fn( array $result ): string => "Directory deleted: {$result['path']}",
+			),
+		),
+		static fn( array $arguments ): array|WP_Error => haydi_file_execute_delete_dir(
+			(string) ( $arguments['path'] ?? '' ),
+			'' !== (string) ( $arguments['reason'] ?? '' ) ? (string) $arguments['reason'] : 'MCP-initiated directory deletion.',
+			$guard,
+			$health,
+			$logger
+		)
+	);
+
+	$catalog->register(
+		array(
+			'name'           => 'restore_backup',
+			'description'    => 'Restore a file from a specific backup. Calling this tool opens an approval UI for the user; they confirm before the restore happens. Use list_backups first to find the correct backup_file name. A new backup of the current file is created before restoring so the restore is itself reversible.',
+			'input_schema'   => array(
+				'type'       => 'object',
+				'properties' => array(
+					'backup_file'   => array(
+						'type'        => 'string',
+						'description' => 'The backup filename as returned by list_backups.',
+					),
+					'original_path' => array(
+						'type'        => 'string',
+						'description' => 'Absolute filesystem path where the file should be restored.',
+					),
+					'reason'        => array(
+						'type'        => 'string',
+						'description' => 'Human-readable explanation of why this backup is being restored.',
+					),
+				),
+				'required'   => array( 'backup_file', 'original_path', 'reason' ),
+			),
+			'effect'         => 'approval',
+			'activity_label' => 'Prepared restore backup',
+			'proposal'       => array(
+				'label'          => 'Restore Backup',
+				'ajax_action'    => 'haydi_restore_backup',
+				'log_action'     => 'restore_proposed',
+				'log_path_field' => 'original_path',
+			),
+			'projections'    => array(
+				'chat' => true,
+				'mcp'  => array(
+					'name'        => 'haydi_restore_backup',
+					'description' => 'Restore a file from a Haydi backup.',
+					'required'    => array( 'backup_file', 'original_path' ),
+					'available'   => $mcp_available,
+				),
+			),
+			'presenters'     => array(
+				'mcp' => static fn( array $result ): string => "Backup restored: {$result['backup_file']} → {$result['original_path']}",
+			),
+		),
+		static fn( array $arguments ): array|WP_Error => haydi_file_execute_restore_backup(
+			(string) ( $arguments['backup_file'] ?? '' ),
+			(string) ( $arguments['original_path'] ?? '' ),
+			(string) ( $arguments['reason'] ?? '' ),
+			$guard,
+			$health,
+			$logger
+		)
+	);
+}
 
 // -------------------------------------------------------------------------
-// AJAX handlers, MCP, and REST routes
+// Browser AJAX and direct REST Adapters.
 // -------------------------------------------------------------------------
 
 ( static function () {
@@ -304,210 +504,6 @@ add_filter(
 				return; }
 			wp_send_json_success( $result );
 		}
-	);
-
-	add_filter(
-		'haydi_mcp_tools',
-		static function ( array $tools ): array {
-			if ( ! wp_is_file_mod_allowed( 'plugin_files' ) && ! wp_is_file_mod_allowed( 'theme_files' ) ) {
-				return $tools;
-			}
-			return array_merge(
-				$tools,
-				array(
-					array(
-						'name'        => 'haydi_write_file',
-						'description' => 'Create or overwrite a file inside the allowed roots. PHP syntax is validated before writing.',
-						'inputSchema' => array(
-							'type'       => 'object',
-							'properties' => array(
-								'path'    => array(
-									'type'        => 'string',
-									'description' => 'Absolute path to write to.',
-								),
-								'content' => array(
-									'type'        => 'string',
-									'description' => 'Complete file contents.',
-								),
-								'reason'  => array(
-									'type'        => 'string',
-									'description' => 'Reason (shown in audit log).',
-								),
-							),
-							'required'   => array( 'path', 'content' ),
-						),
-					),
-					array(
-						'name'        => 'haydi_edit_file',
-						'description' => 'Exact-string substitution in an existing file.',
-						'inputSchema' => array(
-							'type'       => 'object',
-							'properties' => array(
-								'path'        => array(
-									'type'        => 'string',
-									'description' => 'Absolute path.',
-								),
-								'old_string'  => array(
-									'type'        => 'string',
-									'description' => 'Exact string to replace.',
-								),
-								'new_string'  => array(
-									'type'        => 'string',
-									'description' => 'Replacement string.',
-								),
-								'replace_all' => array(
-									'type'        => 'boolean',
-									'description' => 'Replace all occurrences (default: false).',
-								),
-								'reason'      => array(
-									'type'        => 'string',
-									'description' => 'Reason.',
-								),
-							),
-							'required'   => array( 'path', 'old_string', 'new_string' ),
-						),
-					),
-					array(
-						'name'        => 'haydi_delete_file',
-						'description' => 'Delete a file. A backup is created automatically.',
-						'inputSchema' => array(
-							'type'       => 'object',
-							'properties' => array(
-								'path'   => array(
-									'type'        => 'string',
-									'description' => 'Absolute path.',
-								),
-								'reason' => array(
-									'type'        => 'string',
-									'description' => 'Reason.',
-								),
-							),
-							'required'   => array( 'path' ),
-						),
-					),
-					array(
-						'name'        => 'haydi_move_file',
-						'description' => 'Move or rename a file.',
-						'inputSchema' => array(
-							'type'       => 'object',
-							'properties' => array(
-								'src'    => array(
-									'type'        => 'string',
-									'description' => 'Source path.',
-								),
-								'dest'   => array(
-									'type'        => 'string',
-									'description' => 'Destination path.',
-								),
-								'reason' => array(
-									'type'        => 'string',
-									'description' => 'Reason.',
-								),
-							),
-							'required'   => array( 'src', 'dest' ),
-						),
-					),
-					array(
-						'name'        => 'haydi_copy_file',
-						'description' => 'Copy a file.',
-						'inputSchema' => array(
-							'type'       => 'object',
-							'properties' => array(
-								'src'    => array(
-									'type'        => 'string',
-									'description' => 'Source path.',
-								),
-								'dest'   => array(
-									'type'        => 'string',
-									'description' => 'Destination path.',
-								),
-								'reason' => array(
-									'type'        => 'string',
-									'description' => 'Reason.',
-								),
-							),
-							'required'   => array( 'src', 'dest' ),
-						),
-					),
-					array(
-						'name'        => 'haydi_delete_directory',
-						'description' => 'Recursively delete a directory.',
-						'inputSchema' => array(
-							'type'       => 'object',
-							'properties' => array(
-								'path'   => array(
-									'type'        => 'string',
-									'description' => 'Absolute path.',
-								),
-								'reason' => array(
-									'type'        => 'string',
-									'description' => 'Reason.',
-								),
-							),
-							'required'   => array( 'path' ),
-						),
-					),
-					array(
-						'name'        => 'haydi_restore_backup',
-						'description' => 'Restore a file from a Haydi backup.',
-						'inputSchema' => array(
-							'type'       => 'object',
-							'properties' => array(
-								'backup_file'   => array(
-									'type'        => 'string',
-									'description' => 'Backup file name from haydi_list_backups.',
-								),
-								'original_path' => array(
-									'type'        => 'string',
-									'description' => 'Original file path to restore to.',
-								),
-								'reason'        => array(
-									'type'        => 'string',
-									'description' => 'Reason.',
-								),
-							),
-							'required'   => array( 'backup_file', 'original_path' ),
-						),
-					),
-				)
-			);
-		}
-	);
-
-	add_filter(
-		'haydi_mcp_execute_tool',
-		static function ( $result, string $name, array $args ) use ( $guard, $health, $logger ) {
-			if ( null !== $result ) {
-				return $result; }
-			switch ( $name ) {
-				case 'haydi_write_file':
-					$r = haydi_file_execute_write( (string) ( $args['path'] ?? '' ), (string) ( $args['content'] ?? '' ), (string) ( $args['reason'] ?? '' ), $guard, $health, $logger );
-					return is_wp_error( $r ) ? $r : "File written successfully: {$r['path']}";
-				case 'haydi_edit_file':
-					$r = haydi_file_execute_edit( (string) ( $args['path'] ?? '' ), (string) ( $args['old_string'] ?? '' ), (string) ( $args['new_string'] ?? '' ), (bool) ( $args['replace_all'] ?? false ), (string) ( $args['reason'] ?? '' ), $guard, $health, $logger );
-					return is_wp_error( $r ) ? $r : "File edited successfully ({$r['matches']} match(es)): {$r['path']}";
-				case 'haydi_delete_file':
-					$reason = (string) ( $args['reason'] ?? '' );
-					$r      = haydi_file_execute_delete( (string) ( $args['path'] ?? '' ), '' !== $reason ? $reason : 'MCP-initiated deletion.', $guard, $health, $logger );
-					return is_wp_error( $r ) ? $r : "File deleted successfully: {$r['path']}";
-				case 'haydi_move_file':
-					$r = haydi_file_execute_move( (string) ( $args['src'] ?? '' ), (string) ( $args['dest'] ?? '' ), (string) ( $args['reason'] ?? '' ), $guard, $health, $logger );
-					return is_wp_error( $r ) ? $r : "File moved: {$r['src']} → {$r['dest']}";
-				case 'haydi_copy_file':
-					$r = haydi_file_execute_copy( (string) ( $args['src'] ?? '' ), (string) ( $args['dest'] ?? '' ), (string) ( $args['reason'] ?? '' ), $guard, $health, $logger );
-					return is_wp_error( $r ) ? $r : "File copied: {$r['src']} → {$r['dest']}";
-				case 'haydi_delete_directory':
-					$reason = (string) ( $args['reason'] ?? '' );
-					$r      = haydi_file_execute_delete_dir( (string) ( $args['path'] ?? '' ), '' !== $reason ? $reason : 'MCP-initiated directory deletion.', $guard, $health, $logger );
-					return is_wp_error( $r ) ? $r : "Directory deleted: {$r['path']}";
-				case 'haydi_restore_backup':
-					$r = haydi_file_execute_restore_backup( (string) ( $args['backup_file'] ?? '' ), (string) ( $args['original_path'] ?? '' ), (string) ( $args['reason'] ?? '' ), $guard, $health, $logger );
-					return is_wp_error( $r ) ? $r : "Backup restored: {$r['backup_file']} → {$r['original_path']}";
-			}
-			return null;
-		},
-		10,
-		3
 	);
 
 	add_action(

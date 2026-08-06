@@ -12,7 +12,6 @@ defined( 'ABSPATH' ) || exit;
 use WordPress\AiClient\Messages\DTO\ModelMessage;
 use WordPress\AiClient\Messages\DTO\MessagePart;
 use WordPress\AiClient\Messages\DTO\UserMessage;
-use WordPress\AiClient\Providers\Models\DTO\ModelConfig;
 use WordPress\AiClient\Tools\DTO\FunctionCall;
 use WordPress\AiClient\Tools\DTO\FunctionDeclaration;
 use WordPress\AiClient\Tools\DTO\FunctionResponse;
@@ -32,6 +31,20 @@ class Haydi_AI_Client {
 	/** @var int|null Request timeout in seconds, loaded lazily from wp_options. */
 	private ?int $request_timeout = null;
 
+	/** @var Haydi_Tool_Catalog|null Tool declarations loaded lazily after all active plugins register. */
+	private ?Haydi_Tool_Catalog $tool_catalog = null;
+
+	public function __construct( ?Haydi_Tool_Catalog $tool_catalog = null ) {
+		$this->tool_catalog = $tool_catalog;
+	}
+
+	private function tool_catalog(): Haydi_Tool_Catalog {
+		if ( ! isset( $this->tool_catalog ) || null === $this->tool_catalog ) {
+			$this->tool_catalog = haydi_get_tool_catalog();
+		}
+		return $this->tool_catalog;
+	}
+
 	private function get_max_tokens(): int {
 		if ( null === $this->max_tokens ) {
 			$this->max_tokens = (int) get_option( 'haydi_max_tokens', self::DEFAULT_MAX_TOKENS );
@@ -44,30 +57,6 @@ class Haydi_AI_Client {
 			$this->request_timeout = (int) get_option( 'haydi_request_timeout', self::DEFAULT_REQUEST_TIMEOUT );
 		}
 		return $this->request_timeout;
-	}
-
-	/**
-	 * Return the tool_choice value for the given provider, or null if unknown.
-	 *
-	 * Only applied to providers that need an explicit value. OpenAI receives
-	 * "auto" so plain chat can answer directly while site-management prompts
-	 * can still call tools. Anthropic follows system prompt instructions
-	 * reliably and must NOT be forced — tool_choice:"any" causes it to loop
-	 * endlessly calling read-only tools rather than proceeding.
-	 * When model_preference is null the active provider is unknown, so we skip
-	 * setting tool_choice to avoid sending a wrong value to an unexpected provider.
-	 *
-	 * @param  array|null $model_preference [provider_id, model_id] or null.
-	 * @return string|array|null
-	 */
-	private function get_tool_choice_for_provider( ?array $model_preference ): string|array|null {
-		if ( null === $model_preference ) {
-			return null;
-		}
-		return match ( $model_preference[0] ?? '' ) {
-			'openai' => 'auto',
-			default  => null,
-		};
 	}
 
 	// -------------------------------------------------------------------------
@@ -202,14 +191,9 @@ class Haydi_AI_Client {
 		}
 
 		if ( $include_tools ) {
+			// Let each connector use its native automatic Tool selection default.
+			// Custom tool_choice shapes differ between provider transports.
 			$builder = $builder->using_function_declarations( ...$this->get_function_declarations() );
-
-			$tool_choice = $this->get_tool_choice_for_provider( $model_preference );
-			if ( null !== $tool_choice ) {
-				$config = new ModelConfig();
-				$config->setCustomOption( 'tool_choice', $tool_choice );
-				$builder = $builder->using_model_config( $config );
-			}
 		}
 
 		remove_filter( 'wp_ai_client_default_request_timeout', $extend_timeout );
@@ -740,163 +724,16 @@ class Haydi_AI_Client {
 	// -------------------------------------------------------------------------
 
 	/**
-	 * Schema table for every tool the AI can invoke.
-	 *
-	 * Each entry: tool-name => [ description, fields => [ name => description|spec, ... ] ].
-	 * Most fields are required strings. Tools can pass a field spec array with
-	 * `type`, `description`, and optional `required => false` for other shapes.
-	 *
-	 * get_function_declarations() expands this into FunctionDeclaration objects.
-	 */
-	private const TOOL_SCHEMAS = array(
-		'list_files'        => array(
-			'description' => 'List files and sub-directories inside a directory within an allowed root.',
-			'fields'      => array(
-				'path' => 'Absolute filesystem path of the directory to list.',
-			),
-		),
-		'read_file'         => array(
-			'description' => 'Read and return the full text content of a file within an allowed root.',
-			'fields'      => array(
-				'path' => 'Absolute filesystem path of the file to read.',
-			),
-		),
-		'search_files'      => array(
-			'description' => 'Search text content inside files under the allowed roots. This is a PHP-based scanner for shared hosting, not shell grep. Use before reading many files manually when looking for hooks, functions, classes, shortcodes, option names, strings, or other code references. Empty strings use defaults for path, mode, extensions, and max_results.',
-			'fields'      => array(
-				'query'       => 'Text or regex to search for.',
-				'path'        => 'Absolute allowed directory/file to search, or empty string to search all allowed roots.',
-				'mode'        => '"literal" for case-insensitive text search, "regex" for preg_match search, or empty string for literal.',
-				'extensions'  => 'Comma-separated allowed extensions to scan (for example "php,js"), or empty string for all allowed extensions.',
-				'max_results' => 'Maximum matches to return, 1-100, or empty string for the default.',
-			),
-		),
-		'fetch_url'         => array(
-			'description' => 'Fetch the text content of a public HTTP/HTTPS URL for reference. Private/internal addresses are blocked.',
-			'fields'      => array(
-				'url' => 'Fully-qualified public HTTP or HTTPS URL to fetch.',
-			),
-		),
-		'list_plugins'      => array(
-			'description' => 'List all installed WordPress plugins with their activation status, version, and plugin file path. Use this to discover what is installed before installing or activating anything.',
-			'fields'      => array(),
-		),
-		'install_plugin'    => array(
-			'description' => 'Install a plugin from WordPress.org by its slug. Calling this tool opens an approval UI for the user; they confirm before anything is downloaded or installed. You must invoke this tool to trigger the approval — describing the install in plain text does nothing.',
-			'fields'      => array(
-				'slug'   => 'The WordPress.org plugin slug, e.g. "woocommerce".',
-				'reason' => 'Human-readable explanation of why this plugin should be installed.',
-			),
-		),
-		'activate_plugin'   => array(
-			'description' => 'Activate an already-installed WordPress plugin. Calling this tool opens an approval UI for the user; they confirm before activation. Use list_plugins first to get the correct plugin file path. You must invoke this tool to trigger the approval — describing the activation in plain text does nothing.',
-			'fields'      => array(
-				'plugin' => 'Plugin file path relative to the plugins directory, e.g. "woocommerce/woocommerce.php".',
-				'reason' => 'Human-readable explanation of why this plugin is being activated.',
-			),
-		),
-		'deactivate_plugin' => array(
-			'description' => 'Deactivate an active WordPress plugin. Calling this tool opens an approval UI for the user; they confirm before deactivation. You must invoke this tool to trigger the approval — describing the deactivation in plain text does nothing.',
-			'fields'      => array(
-				'plugin' => 'Plugin file path relative to the plugins directory, e.g. "woocommerce/woocommerce.php".',
-				'reason' => 'Human-readable explanation of why this plugin is being deactivated.',
-			),
-		),
-		'list_backups'      => array(
-			'description' => 'List available backup files created by this plugin. Always call this tool when the user asks about backups or wants to restore a file — never assume or guess what backups exist. Returns backup_file names (needed for restore_backup), original filenames, and timestamps.',
-			'fields'      => array(
-				'path' => array(
-					'type'        => 'string',
-					'description' => 'Optional absolute path of the original file to filter backups for. Leave empty to list all backups.',
-					'required'    => false,
-				),
-			),
-		),
-		'list_posts'        => array(
-			'description' => 'List WordPress posts and pages with their content, ID, title, status, type, modified date. Defaults to 50 most recently modified of any status across posts and pages.',
-			'fields'      => array(
-				'status' => array(
-					'type'        => 'string',
-					'description' => 'Post status filter (publish, draft, any, etc.). Defaults to any.',
-					'required'    => false,
-				),
-				'type'   => array(
-					'type'        => 'string',
-					'description' => 'Post type filter (post, page, etc.). Defaults to post and page.',
-					'required'    => false,
-				),
-				'limit'  => array(
-					'type'        => 'string',
-					'description' => 'Maximum results to return (1-200). Defaults to 50.',
-					'required'    => false,
-				),
-			),
-		),
-		'list_users'        => array(
-			'description' => 'List WordPress users with their ID, login, email, display name, and roles. Defaults to 50 most recently registered.',
-			'fields'      => array(
-				'role'  => array(
-					'type'        => 'string',
-					'description' => 'Role filter (administrator, editor, etc.). Leave empty for all roles.',
-					'required'    => false,
-				),
-				'limit' => array(
-					'type'        => 'string',
-					'description' => 'Maximum results to return (1-200). Defaults to 50.',
-					'required'    => false,
-				),
-			),
-		),
-		'list_options'      => array(
-			'description' => 'List WordPress site options. Without a search term returns autoloaded options; with a search term filters option_name by substring. Capped at 100 rows.',
-			'fields'      => array(
-				'search' => array(
-					'type'        => 'string',
-					'description' => 'Substring to filter option_name by. Leave empty to list autoloaded options.',
-					'required'    => false,
-				),
-			),
-		),
-	);
-
-	/**
 	 * Return FunctionDeclaration objects for all tools the AI can invoke.
 	 * Uses JSON Schema for parameters — compatible with all major AI providers.
 	 */
 	private function get_function_declarations(): array {
 		$declarations = array();
-		foreach ( apply_filters( 'haydi_tool_schemas', self::TOOL_SCHEMAS ) as $name => $spec ) {
-			$properties = array();
-			$required   = array();
-			foreach ( $spec['fields'] as $field => $field_spec ) {
-				$is_required = true;
-				if ( is_array( $field_spec ) ) {
-					$type        = $field_spec['type'] ?? 'string';
-					$description = $field_spec['description'] ?? '';
-					$is_required = $field_spec['required'] ?? true;
-				} else {
-					$type        = 'string';
-					$description = $field_spec;
-				}
-				$properties[ $field ] = array(
-					'type'        => $type,
-					'description' => $description,
-				);
-				if ( $is_required ) {
-					$required[] = $field;
-				}
-			}
+		foreach ( $this->tool_catalog()->declarations( Haydi_Tool_Catalog::CHAT ) as $tool ) {
 			$declarations[] = new FunctionDeclaration(
-				$name,
-				$spec['description'],
-				array(
-					'type'       => 'object',
-					// JSON Schema requires `properties` to be an object, not an
-					// array — empty PHP arrays would serialise as [] which some
-					// providers reject.
-					'properties' => empty( $properties ) ? new \stdClass() : $properties,
-					'required'   => $required,
-				)
+				$tool['name'],
+				$tool['description'],
+				$tool['inputSchema']
 			);
 		}
 		return $declarations;

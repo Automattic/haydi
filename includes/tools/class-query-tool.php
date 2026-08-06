@@ -5,35 +5,60 @@
 
 defined( 'ABSPATH' ) || exit;
 
-if ( ! function_exists( 'haydi_register_action_proposal' ) || ! class_exists( 'Haydi_Audit_Logger' ) ) {
-	return;
-}
-
-haydi_register_action_proposal(
-	'run_query',
-	array(
-		'label'            => 'Run SQL Query',
-		'fields'           => array( 'sql', 'reason' ),
-		'ajax_action'      => 'haydi_execute_query',
-		'log_action'       => 'query_proposed',
-		'log_path_field'   => '',
-		'tool_description' => 'run_query(sql, reason) — run a SQL query via wpdb; opens an approval UI for the user',
-	)
-);
-
-add_filter(
-	'haydi_tool_schemas',
-	static function ( array $schemas ): array {
-		$schemas['run_query'] = array(
-			'description' => 'Run a SQL query via $wpdb. Calling this tool opens an approval UI for the user; they will see the SQL and the reason and confirm before it executes. You must invoke this tool to trigger the approval — describing the query in plain text does nothing.',
-			'fields'      => array(
-				'sql'    => 'The SQL query to execute.',
-				'reason' => 'Human-readable explanation of what this query does and why.',
+/**
+ * Register the SQL Tool Declaration and existing query Implementation.
+ */
+function haydi_register_query_tool(
+	Haydi_Tool_Catalog $catalog,
+	Haydi_Audit_Logger $logger,
+	Haydi_Health_Check $health
+): void {
+	$catalog->register(
+		array(
+			'name'           => 'run_query',
+			'description'    => 'Run a SQL query via $wpdb. Calling this tool opens an approval UI for the user; they will see the SQL and the reason and confirm before it executes. You must invoke this tool to trigger the approval — describing the query in plain text does nothing.',
+			'input_schema'   => array(
+				'type'       => 'object',
+				'properties' => array(
+					'sql'    => array(
+						'type'        => 'string',
+						'description' => 'The SQL query to execute.',
+					),
+					'reason' => array(
+						'type'        => 'string',
+						'description' => 'Human-readable explanation of what this query does and why.',
+					),
+				),
+				'required'   => array( 'sql', 'reason' ),
 			),
-		);
-		return $schemas;
-	}
-);
+			'effect'         => 'approval',
+			'activity_label' => 'Prepared run SQL query',
+			'proposal'       => array(
+				'label'          => 'Run SQL Query',
+				'ajax_action'    => 'haydi_execute_query',
+				'log_action'     => 'query_proposed',
+				'log_path_field' => '',
+			),
+			'projections'    => array(
+				'chat' => true,
+				'mcp'  => array(
+					'name'        => 'haydi_run_query',
+					'description' => 'Run a SQL query via wpdb. SELECT/SHOW/DESCRIBE/EXPLAIN return rows; other statements return affected-row count.',
+					'required'    => array( 'sql' ),
+				),
+			),
+			'presenters'     => array(
+				'mcp' => static fn( array $result ) => 'select' === $result['type'] ? $result['rows'] : $result['result'],
+			),
+		),
+		static fn( array $arguments ): array|WP_Error => haydi_query_execute(
+			trim( (string) ( $arguments['sql'] ?? '' ) ),
+			(string) ( $arguments['reason'] ?? '' ),
+			$logger,
+			$health
+		)
+	);
+}
 
 ( static function () {
 	$logger = new Haydi_Audit_Logger();
@@ -61,59 +86,6 @@ add_filter(
 			}
 			wp_send_json_success( $result );
 		}
-	);
-
-	add_filter(
-		'haydi_mcp_tools',
-		static function ( array $tools ) {
-			return array_merge(
-				$tools,
-				array(
-					array(
-						'name'        => 'haydi_run_query',
-						'description' => 'Run a SQL query via wpdb. SELECT/SHOW/DESCRIBE/EXPLAIN return rows; other statements return affected-row count.',
-						'inputSchema' => array(
-							'type'       => 'object',
-							'properties' => array(
-								'sql'    => array(
-									'type'        => 'string',
-									'description' => 'SQL query to execute.',
-								),
-								'reason' => array(
-									'type'        => 'string',
-									'description' => 'Reason (shown in audit log).',
-								),
-							),
-							'required'   => array( 'sql' ),
-						),
-					),
-				)
-			);
-		}
-	);
-
-	add_filter(
-		'haydi_mcp_execute_tool',
-		static function ( $result, string $name, array $args ) use ( $logger, $health ) {
-			if ( null !== $result || 'haydi_run_query' !== $name ) {
-				return $result;
-			}
-			$r = haydi_query_execute(
-				trim( (string) ( $args['sql'] ?? '' ) ),
-				(string) ( $args['reason'] ?? '' ),
-				$logger,
-				$health
-			);
-			if ( is_wp_error( $r ) ) {
-				return $r;
-			}
-			if ( 'select' === $r['type'] ) {
-				return wp_json_encode( $r['rows'], JSON_PRETTY_PRINT );
-			}
-			return $r['result'];
-		},
-		10,
-		3
 	);
 
 	add_action(

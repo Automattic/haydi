@@ -1,7 +1,6 @@
 <?php
 /**
- * Plugin management tool — install / activate / deactivate AJAX handlers and
- * a list_plugins() AI read tool.
+ * Plugin management Tool Implementations plus their browser AJAX Adapters.
  */
 
 defined( 'ABSPATH' ) || exit;
@@ -24,6 +23,169 @@ class Haydi_Plugin_Tool extends Haydi_Ajax_Tool_Base {
 		) as $action => $method ) {
 			add_action( 'wp_ajax_' . $action, array( $this, $method ) );
 		}
+	}
+
+	/**
+	 * Register plugin inventory and mutation tools with the Tool Catalog.
+	 */
+	public function register_tools( Haydi_Tool_Catalog $catalog ): void {
+		$catalog->register(
+			array(
+				'name'           => 'list_plugins',
+				'description'    => 'List all installed WordPress plugins with their activation status, version, and plugin file path. Use this to discover what is installed before installing or activating anything.',
+				'input_schema'   => array(
+					'type'       => 'object',
+					'properties' => array(),
+					'required'   => array(),
+				),
+				'effect'         => 'automatic',
+				'activity_label' => 'Listed plugins',
+				'projections'    => array(
+					'chat' => true,
+					'mcp'  => array(
+						'name'        => 'haydi_list_plugins',
+						'description' => 'List all installed WordPress plugins with name, version, file path, and activation status.',
+					),
+				),
+			),
+			fn(): string => $this->list_plugins_for_ai()
+		);
+
+		$catalog->register(
+			array(
+				'name'           => 'install_plugin',
+				'description'    => 'Install a plugin from WordPress.org by its slug. Calling this tool opens an approval UI for the user; they confirm before anything is downloaded or installed. You must invoke this tool to trigger the approval — describing the install in plain text does nothing.',
+				'input_schema'   => array(
+					'type'       => 'object',
+					'properties' => array(
+						'slug'   => array(
+							'type'        => 'string',
+							'description' => 'The WordPress.org plugin slug, e.g. "woocommerce".',
+						),
+						'reason' => array(
+							'type'        => 'string',
+							'description' => 'Human-readable explanation of why this plugin should be installed.',
+						),
+					),
+					'required'   => array( 'slug', 'reason' ),
+				),
+				'effect'         => 'approval',
+				'activity_label' => 'Prepared install',
+				'proposal'       => array(
+					'label'          => 'Install Plugin',
+					'response_key'   => 'pending_install',
+					'ajax_action'    => 'haydi_install_plugin',
+					'log_action'     => 'install_proposed',
+					'log_path_field' => 'slug',
+				),
+				'projections'    => array(
+					'chat' => true,
+					'mcp'  => array(
+						'name'        => 'haydi_install_plugin',
+						'description' => 'Install a plugin from WordPress.org by slug.',
+						'required'    => array( 'slug' ),
+						'available'   => static fn(): bool => wp_is_file_mod_allowed( 'plugin_files' ),
+					),
+				),
+				'presenters'     => array(
+					'mcp' => static fn( array $result ): string => "Plugin '{$result['slug']}' installed successfully. Plugin file: {$result['plugin_file']}",
+				),
+			),
+			fn( array $arguments ): array|WP_Error => $this->execute_install(
+				sanitize_key( (string) ( $arguments['slug'] ?? '' ) ),
+				(string) ( $arguments['reason'] ?? '' )
+			)
+		);
+
+		$catalog->register(
+			array(
+				'name'           => 'activate_plugin',
+				'description'    => 'Activate an already-installed WordPress plugin. Calling this tool opens an approval UI for the user; they confirm before activation. Use list_plugins first to get the correct plugin file path. You must invoke this tool to trigger the approval — describing the activation in plain text does nothing.',
+				'input_schema'   => array(
+					'type'       => 'object',
+					'properties' => array(
+						'plugin' => array(
+							'type'        => 'string',
+							'description' => 'Plugin file path relative to the plugins directory, e.g. "woocommerce/woocommerce.php".',
+						),
+						'reason' => array(
+							'type'        => 'string',
+							'description' => 'Human-readable explanation of why this plugin is being activated.',
+						),
+					),
+					'required'   => array( 'plugin', 'reason' ),
+				),
+				'effect'         => 'approval',
+				'activity_label' => 'Prepared activation',
+				'proposal'       => array(
+					'label'          => 'Activate Plugin',
+					'response_key'   => 'pending_activate',
+					'ajax_action'    => 'haydi_activate_plugin',
+					'log_action'     => 'activate_proposed',
+					'log_path_field' => 'plugin',
+				),
+				'projections'    => array(
+					'chat' => true,
+					'mcp'  => array(
+						'name'        => 'haydi_activate_plugin',
+						'description' => 'Activate an installed WordPress plugin.',
+						'required'    => array( 'plugin' ),
+					),
+				),
+				'presenters'     => array(
+					'mcp' => static fn( array $result ): string => "Plugin '{$result['plugin']}' activated successfully.",
+				),
+			),
+			fn( array $arguments ): array|WP_Error => $this->execute_activate(
+				(string) ( $arguments['plugin'] ?? '' ),
+				(string) ( $arguments['reason'] ?? '' )
+			)
+		);
+
+		$catalog->register(
+			array(
+				'name'           => 'deactivate_plugin',
+				'description'    => 'Deactivate an active WordPress plugin. Calling this tool opens an approval UI for the user; they confirm before deactivation. You must invoke this tool to trigger the approval — describing the deactivation in plain text does nothing.',
+				'input_schema'   => array(
+					'type'       => 'object',
+					'properties' => array(
+						'plugin' => array(
+							'type'        => 'string',
+							'description' => 'Plugin file path relative to the plugins directory, e.g. "woocommerce/woocommerce.php".',
+						),
+						'reason' => array(
+							'type'        => 'string',
+							'description' => 'Human-readable explanation of why this plugin is being deactivated.',
+						),
+					),
+					'required'   => array( 'plugin', 'reason' ),
+				),
+				'effect'         => 'approval',
+				'activity_label' => 'Prepared deactivation',
+				'proposal'       => array(
+					'label'          => 'Deactivate Plugin',
+					'response_key'   => 'pending_deactivate',
+					'ajax_action'    => 'haydi_deactivate_plugin',
+					'log_action'     => 'deactivate_proposed',
+					'log_path_field' => 'plugin',
+				),
+				'projections'    => array(
+					'chat' => true,
+					'mcp'  => array(
+						'name'        => 'haydi_deactivate_plugin',
+						'description' => 'Deactivate an active WordPress plugin.',
+						'required'    => array( 'plugin' ),
+					),
+				),
+				'presenters'     => array(
+					'mcp' => static fn( array $result ): string => "Plugin '{$result['plugin']}' deactivated successfully.",
+				),
+			),
+			fn( array $arguments ): array|WP_Error => $this->execute_deactivate(
+				(string) ( $arguments['plugin'] ?? '' ),
+				(string) ( $arguments['reason'] ?? '' )
+			)
+		);
 	}
 
 	// -------------------------------------------------------------------------
@@ -54,7 +216,7 @@ class Haydi_Plugin_Tool extends Haydi_Ajax_Tool_Base {
 	}
 
 	// -------------------------------------------------------------------------
-	// Service-layer execute methods (shared by AJAX, REST API, and MCP)
+	// Service-layer execute methods shared by catalog, AJAX, and direct REST.
 	// -------------------------------------------------------------------------
 
 	/**

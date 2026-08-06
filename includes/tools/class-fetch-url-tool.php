@@ -2,8 +2,8 @@
 /**
  * Fetch_url tool — SSRF-protected outbound HTTP fetch.
  *
- * No AJAX endpoint of its own: the chat dispatcher invokes fetch_for_ai()
- * during the agentic loop. The SSRF guard, DNS pinning, and private-range
+ * No AJAX endpoint of its own: the Tool Catalog invokes fetch_for_ai(). The
+ * SSRF guard, DNS pinning, and private-range
  * checks live in one focused unit so the security perimeter is easy to audit.
  */
 
@@ -24,8 +24,37 @@ class Haydi_Fetch_Url_Tool {
 		$this->logger = $logger;
 	}
 
+	public function register_tools( Haydi_Tool_Catalog $catalog ): void {
+		$catalog->register(
+			array(
+				'name'           => 'fetch_url',
+				'description'    => 'Fetch the text content of a public HTTP/HTTPS URL for reference. Private/internal addresses are blocked.',
+				'input_schema'   => array(
+					'type'       => 'object',
+					'properties' => array(
+						'url' => array(
+							'type'        => 'string',
+							'description' => 'Fully-qualified public HTTP or HTTPS URL to fetch.',
+						),
+					),
+					'required'   => array( 'url' ),
+				),
+				'effect'         => 'automatic',
+				'activity_label' => 'Fetched URL',
+				'projections'    => array(
+					'chat' => true,
+					'mcp'  => array(
+						'name'        => 'haydi_fetch_url',
+						'description' => 'Fetch a public HTTP/HTTPS URL and return its text content. Private/internal addresses are blocked.',
+					),
+				),
+			),
+			fn( array $arguments ): string => $this->fetch_for_ai( (string) ( $arguments['url'] ?? '' ) )
+		);
+	}
+
 	/**
-	 * AI-facing wrapper used by the chat dispatcher's read-tool loop.
+	 * AI-facing wrapper used by Tool Catalog dispatch.
 	 * Returns the response body on success, or a leading "Error: " string on failure.
 	 */
 	public function fetch_for_ai( string $url ): string {

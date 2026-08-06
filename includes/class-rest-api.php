@@ -21,26 +21,31 @@ class Haydi_Rest_Api {
 
 	/** @var Haydi_Filesystem_Guard Filesystem access guard. */
 	private Haydi_Filesystem_Guard $guard;
-	/** @var Haydi_File_Tool File-ops tool. */
-	private Haydi_File_Tool $file_tool;
 	/** @var Haydi_Plugin_Tool Plugin-ops tool. */
 	private Haydi_Plugin_Tool $plugin_tool;
 	/** @var Haydi_Fetch_Url_Tool URL fetch tool. */
 	private Haydi_Fetch_Url_Tool $url_tool;
 	/** @var Haydi_Audit_Logger Audit logger. */
 	private Haydi_Audit_Logger $logger;
-	/** @var Haydi_Health_Check Post-mutation health probe. */
-	private Haydi_Health_Check $health;
+	/** @var Haydi_Tool_Catalog|null Canonical MCP declarations and dispatch. */
+	private ?Haydi_Tool_Catalog $tool_catalog = null;
 
-	public function __construct() {
-		$this->logger      = new Haydi_Audit_Logger();
-		$this->guard       = new Haydi_Filesystem_Guard();
-		$this->health      = new Haydi_Health_Check();
-		$this->file_tool   = new Haydi_File_Tool( $this->logger, $this->guard );
-		$this->plugin_tool = new Haydi_Plugin_Tool( $this->logger, $this->health );
-		$this->url_tool    = new Haydi_Fetch_Url_Tool( $this->logger );
+	public function __construct( ?Haydi_Tool_Catalog $tool_catalog = null ) {
+		$this->logger       = new Haydi_Audit_Logger();
+		$this->guard        = new Haydi_Filesystem_Guard();
+		$health             = new Haydi_Health_Check();
+		$this->plugin_tool  = new Haydi_Plugin_Tool( $this->logger, $health );
+		$this->url_tool     = new Haydi_Fetch_Url_Tool( $this->logger );
+		$this->tool_catalog = $tool_catalog;
 
 		add_action( 'rest_api_init', array( $this, 'register_routes' ) );
+	}
+
+	private function tool_catalog(): Haydi_Tool_Catalog {
+		if ( ! isset( $this->tool_catalog ) || null === $this->tool_catalog ) {
+			$this->tool_catalog = haydi_get_tool_catalog();
+		}
+		return $this->tool_catalog;
 	}
 
 	public function register_routes(): void {
@@ -385,16 +390,19 @@ class Haydi_Rest_Api {
 				return $this->mcp_ok( $id, new \stdClass() );
 
 			case 'tools/list':
-				return $this->mcp_ok( $id, array( 'tools' => $this->mcp_tool_definitions() ) );
+				return $this->mcp_ok(
+					$id,
+					array( 'tools' => $this->tool_catalog()->declarations( Haydi_Tool_Catalog::MCP ) )
+				);
 
 			case 'tools/call':
-				$name   = (string) ( $params['name'] ?? '' );
-				$args   = (array) ( $params['arguments'] ?? array() );
-				$result = $this->mcp_execute_tool( $name, $args );
-				$is_err = is_wp_error( $result );
-				$text   = $is_err
-					? 'Error: ' . $result->get_error_message()
-					: ( is_string( $result ) ? $result : wp_json_encode( $result, JSON_PRETTY_PRINT ) );
+				$name    = (string) ( $params['name'] ?? '' );
+				$args    = (array) ( $params['arguments'] ?? array() );
+				$outcome = $this->tool_catalog()->dispatch( Haydi_Tool_Catalog::MCP, $name, $args );
+				$is_err  = is_wp_error( $outcome );
+				$text    = $is_err
+					? 'Error: ' . $outcome->get_error_message()
+					: $outcome['content'];
 				return $this->mcp_ok(
 					$id,
 					array_filter(
@@ -561,387 +569,5 @@ class Haydi_Rest_Api {
 			),
 			400
 		);
-	}
-
-	private function mcp_tool_definitions(): array {
-		$can_mod_plugins = wp_is_file_mod_allowed( 'plugin_files' );
-
-		$tools = array(
-			// File — read.
-			array(
-				'name'        => 'haydi_list_files',
-				'description' => 'List files and directories inside the WordPress site\'s allowed roots.',
-				'inputSchema' => array(
-					'type'       => 'object',
-					'properties' => array(
-						'path' => array(
-							'type'        => 'string',
-							'description' => 'Directory path to list. Leave empty for all roots.',
-						),
-					),
-				),
-			),
-			array(
-				'name'        => 'haydi_read_file',
-				'description' => 'Read the contents of a file inside the allowed roots.',
-				'inputSchema' => array(
-					'type'       => 'object',
-					'properties' => array(
-						'path' => array(
-							'type'        => 'string',
-							'description' => 'Absolute path to the file.',
-						),
-					),
-					'required'   => array( 'path' ),
-				),
-			),
-			array(
-				'name'        => 'haydi_search_files',
-				'description' => 'Search file contents inside the allowed roots.',
-				'inputSchema' => array(
-					'type'       => 'object',
-					'properties' => array(
-						'query'       => array(
-							'type'        => 'string',
-							'description' => 'Search query.',
-						),
-						'path'        => array(
-							'type'        => 'string',
-							'description' => 'Directory to search in (optional).',
-						),
-						'mode'        => array(
-							'type'        => 'string',
-							'enum'        => array( 'literal', 'regex' ),
-							'description' => 'Search mode (default: literal).',
-						),
-						'extensions'  => array(
-							'type'        => 'string',
-							'description' => 'Comma-separated file extensions, e.g. "php,js" (optional).',
-						),
-						'max_results' => array(
-							'type'        => 'number',
-							'description' => 'Maximum results (optional).',
-						),
-					),
-					'required'   => array( 'query' ),
-				),
-			),
-			array(
-				'name'        => 'haydi_list_backups',
-				'description' => 'List Haydi backup files, optionally filtered by original path.',
-				'inputSchema' => array(
-					'type'       => 'object',
-					'properties' => array(
-						'path' => array(
-							'type'        => 'string',
-							'description' => 'Filter by original file path (optional).',
-						),
-					),
-				),
-			),
-			array(
-				'name'        => 'haydi_get_allowed_roots',
-				'description' => 'Return the list of absolute directory paths that Haydi is allowed to read from and write to.',
-				'inputSchema' => array(
-					'type'       => 'object',
-					'properties' => new \stdClass(),
-				),
-			),
-			// Content.
-			array(
-				'name'        => 'haydi_list_posts',
-				'description' => 'List WordPress posts/pages with ID, title, status, type, date, and content.',
-				'inputSchema' => array(
-					'type'       => 'object',
-					'properties' => array(
-						'status' => array(
-							'type'        => 'string',
-							'description' => 'Post status filter (optional, default: any).',
-						),
-						'type'   => array(
-							'type'        => 'string',
-							'description' => 'Post type filter (optional, default: post,page).',
-						),
-						'limit'  => array(
-							'type'        => 'number',
-							'description' => 'Maximum number to return (optional, default: 50, max: 200).',
-						),
-					),
-				),
-			),
-			array(
-				'name'        => 'haydi_list_users',
-				'description' => 'List WordPress users with ID, login, email, display_name, and roles.',
-				'inputSchema' => array(
-					'type'       => 'object',
-					'properties' => array(
-						'role'  => array(
-							'type'        => 'string',
-							'description' => 'Role filter (optional).',
-						),
-						'limit' => array(
-							'type'        => 'number',
-							'description' => 'Maximum number to return (optional, default: 50, max: 200).',
-						),
-					),
-				),
-			),
-			array(
-				'name'        => 'haydi_list_options',
-				'description' => 'List WordPress options. Without search returns autoloaded options; with search filters by option_name substring.',
-				'inputSchema' => array(
-					'type'       => 'object',
-					'properties' => array(
-						'search' => array(
-							'type'        => 'string',
-							'description' => 'Substring to filter option_name (optional).',
-						),
-					),
-				),
-			),
-			// Plugins.
-			array(
-				'name'        => 'haydi_list_plugins',
-				'description' => 'List all installed WordPress plugins with name, version, file path, and activation status.',
-				'inputSchema' => array(
-					'type'       => 'object',
-					'properties' => new \stdClass(),
-				),
-			),
-			array(
-				'name'        => 'haydi_install_plugin',
-				'description' => 'Install a plugin from WordPress.org by slug.',
-				'inputSchema' => array(
-					'type'       => 'object',
-					'properties' => array(
-						'slug'   => array(
-							'type'        => 'string',
-							'description' => 'WordPress.org plugin slug, e.g. "woocommerce".',
-						),
-						'reason' => array(
-							'type'        => 'string',
-							'description' => 'Reason (shown in audit log).',
-						),
-					),
-					'required'   => array( 'slug' ),
-				),
-			),
-			array(
-				'name'        => 'haydi_activate_plugin',
-				'description' => 'Activate an installed WordPress plugin.',
-				'inputSchema' => array(
-					'type'       => 'object',
-					'properties' => array(
-						'plugin' => array(
-							'type'        => 'string',
-							'description' => 'Plugin file path, e.g. "woocommerce/woocommerce.php".',
-						),
-						'reason' => array(
-							'type'        => 'string',
-							'description' => 'Reason (shown in audit log).',
-						),
-					),
-					'required'   => array( 'plugin' ),
-				),
-			),
-			array(
-				'name'        => 'haydi_deactivate_plugin',
-				'description' => 'Deactivate an active WordPress plugin.',
-				'inputSchema' => array(
-					'type'       => 'object',
-					'properties' => array(
-						'plugin' => array(
-							'type'        => 'string',
-							'description' => 'Plugin file path, e.g. "woocommerce/woocommerce.php".',
-						),
-						'reason' => array(
-							'type'        => 'string',
-							'description' => 'Reason (shown in audit log).',
-						),
-					),
-					'required'   => array( 'plugin' ),
-				),
-			),
-			// URL.
-			array(
-				'name'        => 'haydi_fetch_url',
-				'description' => 'Fetch a public HTTP/HTTPS URL and return its text content. Private/internal addresses are blocked.',
-				'inputSchema' => array(
-					'type'       => 'object',
-					'properties' => array(
-						'url' => array(
-							'type'        => 'string',
-							'description' => 'URL to fetch.',
-						),
-					),
-					'required'   => array( 'url' ),
-				),
-			),
-		);
-
-		if ( ! $can_mod_plugins ) {
-			$tools = array_values( array_filter( $tools, fn( $t ) => 'haydi_install_plugin' !== $t['name'] ) );
-		}
-
-		return apply_filters( 'haydi_mcp_tools', $tools );
-	}
-
-	/**
-	 * Execute a named MCP tool and return a string result or WP_Error.
-	 */
-	private function mcp_execute_tool( string $name, array $args ): string|WP_Error {
-		switch ( $name ) {
-			case 'haydi_get_allowed_roots':
-				return wp_json_encode( array_values( $this->guard->get_allowed_roots() ), JSON_PRETTY_PRINT );
-			case 'haydi_list_files':
-				return $this->file_tool->list_files_for_ai( (string) ( $args['path'] ?? '' ) );
-			case 'haydi_read_file':
-				return $this->file_tool->read_file_for_ai( (string) ( $args['path'] ?? '' ) );
-			case 'haydi_search_files':
-				return $this->file_tool->search_files_for_ai(
-					(string) ( $args['query'] ?? '' ),
-					(string) ( $args['path'] ?? '' ),
-					(string) ( $args['mode'] ?? '' ),
-					(string) ( $args['extensions'] ?? '' ),
-					(string) ( $args['max_results'] ?? '' )
-				);
-			case 'haydi_list_backups':
-				return $this->file_tool->list_backups_for_ai( (string) ( $args['path'] ?? '' ) );
-			case 'haydi_list_plugins':
-				return $this->plugin_tool->list_plugins_for_ai();
-			case 'haydi_fetch_url':
-				return $this->url_tool->fetch_for_ai( (string) ( $args['url'] ?? '' ) );
-			case 'haydi_list_posts':
-				return $this->mcp_do_list_posts( $args );
-			case 'haydi_list_users':
-				return $this->mcp_do_list_users( $args );
-			case 'haydi_list_options':
-				return $this->mcp_do_list_options( $args );
-			case 'haydi_install_plugin':
-				return $this->mcp_do_install_plugin( $args );
-			case 'haydi_activate_plugin':
-				return $this->mcp_do_activate_plugin( $args );
-			case 'haydi_deactivate_plugin':
-				return $this->mcp_do_deactivate_plugin( $args );
-			default:
-				$filtered = apply_filters( 'haydi_mcp_execute_tool', null, $name, $args );
-				if ( null !== $filtered ) {
-					return $filtered;
-				}
-				return new WP_Error( 'unknown_tool', "Unknown tool: {$name}" );
-		}
-	}
-
-	private function mcp_do_list_posts( array $args ): string {
-		$status = (string) ( $args['status'] ?? '' );
-		$type   = (string) ( $args['type'] ?? '' );
-		$limit  = (string) ( $args['limit'] ?? '' );
-		$query  = array(
-			'post_status'    => '' !== $status ? sanitize_text_field( $status ) : 'any',
-			'post_type'      => '' !== $type ? sanitize_text_field( $type ) : array( 'post', 'page' ),
-			'posts_per_page' => '' !== $limit ? min( 200, (int) $limit ) : 50,
-			'orderby'        => 'modified',
-			'order'          => 'DESC',
-		);
-		$posts  = get_posts( $query );
-		$rows   = array();
-		foreach ( $posts as $post ) {
-			$rows[] = array(
-				'ID'      => $post->ID,
-				'title'   => $post->post_title,
-				'status'  => $post->post_status,
-				'type'    => $post->post_type,
-				'date'    => $post->post_date,
-				'content' => $post->post_content,
-			);
-		}
-		$this->logger->log( 'list_posts', '' );
-		return wp_json_encode( $rows, JSON_PRETTY_PRINT );
-	}
-
-	private function mcp_do_list_users( array $args ): string {
-		$role  = (string) ( $args['role'] ?? '' );
-		$limit = (string) ( $args['limit'] ?? '' );
-		$query = array(
-			'number'  => '' !== $limit ? min( 200, (int) $limit ) : 50,
-			'orderby' => 'user_registered',
-			'order'   => 'DESC',
-		);
-		if ( '' !== $role ) {
-			$query['role'] = sanitize_text_field( $role );
-		}
-		$users = get_users( $query );
-		$rows  = array();
-		foreach ( $users as $user ) {
-			$rows[] = array(
-				'ID'           => $user->ID,
-				'login'        => $user->user_login,
-				'email'        => $user->user_email,
-				'display_name' => $user->display_name,
-				'roles'        => $user->roles,
-			);
-		}
-		$this->logger->log( 'list_users', '' );
-		return wp_json_encode( $rows, JSON_PRETTY_PRINT );
-	}
-
-	private function mcp_do_list_options( array $args ): string {
-		global $wpdb;
-		$search = (string) ( $args['search'] ?? '' );
-		if ( '' !== $search ) {
-			$like = $wpdb->esc_like( sanitize_text_field( $search ) );
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-			$rows = $wpdb->get_results(
-				$wpdb->prepare( "SELECT option_name, option_value, autoload FROM {$wpdb->options} WHERE option_name LIKE %s LIMIT 100", '%' . $like . '%' ),
-				ARRAY_A
-			);
-		} else {
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-			$rows = $wpdb->get_results(
-				"SELECT option_name, option_value, autoload FROM {$wpdb->options} WHERE autoload = 'yes' ORDER BY option_name LIMIT 100",
-				ARRAY_A
-			);
-		}
-		foreach ( $rows as &$row ) {
-			if ( strlen( $row['option_value'] ) > 500 ) {
-				$row['option_value'] = substr( $row['option_value'], 0, 500 ) . '...(truncated)';
-			}
-		}
-		unset( $row );
-		$this->logger->log( 'list_options', '', $search );
-		return wp_json_encode( $rows, JSON_PRETTY_PRINT );
-	}
-
-	private function mcp_do_install_plugin( array $args ): string|WP_Error {
-		$result = $this->plugin_tool->execute_install(
-			sanitize_key( (string) ( $args['slug'] ?? '' ) ),
-			(string) ( $args['reason'] ?? '' )
-		);
-		if ( is_wp_error( $result ) ) {
-			return $result;
-		}
-		return "Plugin '{$result['slug']}' installed successfully. Plugin file: {$result['plugin_file']}";
-	}
-
-	private function mcp_do_activate_plugin( array $args ): string|WP_Error {
-		$result = $this->plugin_tool->execute_activate(
-			(string) ( $args['plugin'] ?? '' ),
-			(string) ( $args['reason'] ?? '' )
-		);
-		if ( is_wp_error( $result ) ) {
-			return $result;
-		}
-		return "Plugin '{$result['plugin']}' activated successfully.";
-	}
-
-	private function mcp_do_deactivate_plugin( array $args ): string|WP_Error {
-		$result = $this->plugin_tool->execute_deactivate(
-			(string) ( $args['plugin'] ?? '' ),
-			(string) ( $args['reason'] ?? '' )
-		);
-		if ( is_wp_error( $result ) ) {
-			return $result;
-		}
-		return "Plugin '{$result['plugin']}' deactivated successfully.";
 	}
 }

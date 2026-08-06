@@ -82,18 +82,4 @@ abstract class Haydi_Ajax_Tool_Base {
 
 		return array( $provider, $model );
 	}
-
-	/**
-	 * Dispatch a Filesystem_Guard-style return value. WP_Error → JSON error;
-	 * otherwise the success callback is invoked with the resolved result.
-	 *
-	 * The callback is responsible for calling wp_send_json_success() itself
-	 * — that lets each handler shape its response and log appropriately.
-	 */
-	protected function dispatch_guard_result( $result, callable $on_success ): void {
-		if ( is_wp_error( $result ) ) {
-			wp_send_json_error( array( 'message' => $result->get_error_message() ) );
-		}
-		$on_success( $result );
-	}
 }

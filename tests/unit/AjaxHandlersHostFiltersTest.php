@@ -12,6 +12,7 @@ class AjaxHandlersHostFiltersTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Monkey\setUp();
+		unset( $GLOBALS['haydi_tool_catalog'], $GLOBALS['haydi_tool_catalog_building'] );
 
 		global $wpdb;
 		$wpdb = (object) array( 'prefix' => 'wp_' );
@@ -34,6 +35,7 @@ class AjaxHandlersHostFiltersTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
+		unset( $GLOBALS['haydi_tool_catalog'], $GLOBALS['haydi_tool_catalog_building'] );
 		Monkey\tearDown();
 		parent::tearDown();
 	}
@@ -74,7 +76,7 @@ class AjaxHandlersHostFiltersTest extends TestCase {
 			}
 		);
 
-		$result = $this->execute_read_tool( 'wccom_get_migration_url', array() );
+		$result = $this->dispatch_chat_tool( 'wccom_get_migration_url', array() );
 
 		$this->assertSame( 'https://wordpress.com/setup/hosted-site-migration', $result );
 	}
@@ -90,7 +92,7 @@ class AjaxHandlersHostFiltersTest extends TestCase {
 			}
 		);
 
-		$result = $this->execute_read_tool( 'wccom_get_migration_url', array() );
+		$result = $this->dispatch_chat_tool( 'wccom_get_migration_url', array() );
 
 		$this->assertSame(
 			'{"url":"https:\/\/wordpress.com\/setup\/hosted-site-migration"}',
@@ -109,7 +111,7 @@ class AjaxHandlersHostFiltersTest extends TestCase {
 			}
 		);
 
-		$result = $this->execute_read_tool( 'broken_tool', array() );
+		$result = $this->dispatch_chat_tool( 'broken_tool', array() );
 
 		$this->assertSame( 'Error: Tool failed.', $result );
 	}
@@ -127,13 +129,12 @@ class AjaxHandlersHostFiltersTest extends TestCase {
 		return $method->invoke( $handler );
 	}
 
-	private function execute_read_tool( string $name, array $input ): string {
-		$ref     = new \ReflectionClass( Haydi_Ajax_Handlers::class );
-		$handler = $ref->newInstanceWithoutConstructor();
-		$method  = $ref->getMethod( 'execute_read_tool' );
+	private function dispatch_chat_tool( string $name, array $input ): string {
+		$catalog = new Haydi_Tool_Catalog();
+		$outcome = $catalog->dispatch( Haydi_Tool_Catalog::CHAT, $name, $input );
 
-		$method->setAccessible( true );
-
-		return $method->invoke( $handler, $name, $input );
+		return is_wp_error( $outcome )
+			? 'Error: ' . $outcome->get_error_message()
+			: $outcome['content'];
 	}
 }

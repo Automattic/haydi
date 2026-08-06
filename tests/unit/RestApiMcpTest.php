@@ -6,7 +6,7 @@
  * --------
  * - newInstanceWithoutConstructor() builds the class without calling __construct
  *   (which would register WordPress hooks and instantiate dependencies).
- * - All properties that handle_mcp() touches are injected via reflection.
+ * - The Tool Catalog used by handle_mcp() is injected via reflection.
  * - WP_REST_Request / WP_REST_Response are lightweight stubs defined in bootstrap.
  * - check_permission() is exercised via reflection (the method is public, but we
  *   inject a real Haydi_Api_Token_Manager backed by an in-memory option store).
@@ -48,18 +48,20 @@ class RestApiMcpTest extends TestCase {
 		Functions\when( 'sanitize_text_field' )->returnArg();
 		Functions\when( '__' )->alias( static function ( string $text ) { return $text; } );
 		Functions\when( 'wp_json_encode' )->alias( 'json_encode' );
+		Functions\when( 'wp_is_file_mod_allowed' )->justReturn( true );
+		Functions\when( 'apply_filters' )->alias(
+			static function ( string $hook, $value, ...$args ) {
+				unset( $hook, $args );
+				return $value;
+			}
+		);
 
 		// Build the REST API object without invoking __construct.
 		$this->ref = new \ReflectionClass( Haydi_Rest_Api::class );
 		$this->api = $this->ref->newInstanceWithoutConstructor();
 
-		// Inject mock objects for the dependencies used by mcp_execute_tool().
-		$this->injectProperty( 'file_tool',   $this->buildMockFileTool() );
-		$this->injectProperty( 'plugin_tool', $this->buildMockPluginTool() );
-		$this->injectProperty( 'url_tool',    $this->buildMockUrlTool() );
-		$this->injectProperty( 'guard',       $this->buildMockGuard() );
-		$this->injectProperty( 'logger',      $this->buildMockLogger() );
-		$this->injectProperty( 'health',      $this->buildMockHealth() );
+		// handle_mcp() now delegates declarations and execution to this catalog.
+		$this->injectProperty( 'tool_catalog', Haydi_Tool_Catalog::create_default() );
 	}
 
 	protected function tearDown(): void {
@@ -86,80 +88,6 @@ class RestApiMcpTest extends TestCase {
 	/** Invoke handle_mcp() and return the WP_REST_Response. */
 	private function callMcp( array $body ): WP_REST_Response {
 		return $this->api->handle_mcp( $this->buildRequest( $body ) );
-	}
-
-	// ---- Mock factories ---------------------------------------------------
-
-	private function buildMockFileTool(): Haydi_File_Tool {
-		$mock = $this->getMockBuilder( Haydi_File_Tool::class )
-			->disableOriginalConstructor()
-			->onlyMethods( array( 'list_files_for_ai', 'read_file_for_ai', 'search_files_for_ai', 'list_backups_for_ai' ) )
-			->getMock();
-
-		$mock->method( 'list_files_for_ai' )->willReturn( json_encode( array( 'files' => array() ) ) );
-		$mock->method( 'read_file_for_ai' )->willReturn( '<?php // stub' );
-		$mock->method( 'search_files_for_ai' )->willReturn( json_encode( array() ) );
-		$mock->method( 'list_backups_for_ai' )->willReturn( 'No backups found.' );
-
-		return $mock;
-	}
-
-	private function buildMockPluginTool(): Haydi_Plugin_Tool {
-		$mock = $this->getMockBuilder( Haydi_Plugin_Tool::class )
-			->disableOriginalConstructor()
-			->onlyMethods( array( 'list_plugins_for_ai' ) )
-			->getMock();
-
-		$mock->method( 'list_plugins_for_ai' )->willReturn(
-			json_encode( array(
-				array( 'file' => 'haydi/haydi.php', 'name' => 'Haydi', 'version' => '1.0.0', 'active' => true ),
-			) )
-		);
-
-		return $mock;
-	}
-
-	private function buildMockUrlTool(): Haydi_Fetch_Url_Tool {
-		$mock = $this->getMockBuilder( Haydi_Fetch_Url_Tool::class )
-			->disableOriginalConstructor()
-			->onlyMethods( array( 'fetch_for_ai' ) )
-			->getMock();
-
-		$mock->method( 'fetch_for_ai' )->willReturn( 'fetched content' );
-
-		return $mock;
-	}
-
-	private function buildMockGuard(): Haydi_Filesystem_Guard {
-		$mock = $this->getMockBuilder( Haydi_Filesystem_Guard::class )
-			->disableOriginalConstructor()
-			->onlyMethods( array( 'list_files' ) )
-			->getMock();
-
-		$mock->method( 'list_files' )->willReturn( array() );
-
-		return $mock;
-	}
-
-	private function buildMockLogger(): Haydi_Audit_Logger {
-		$mock = $this->getMockBuilder( Haydi_Audit_Logger::class )
-			->disableOriginalConstructor()
-			->onlyMethods( array( 'log' ) )
-			->getMock();
-
-		return $mock;
-	}
-
-	private function buildMockHealth(): Haydi_Health_Check {
-		$mock = $this->getMockBuilder( Haydi_Health_Check::class )
-			->disableOriginalConstructor()
-			->onlyMethods( array( 'verify_or_revert', 'verify_or_warn' ) )
-			->getMock();
-
-		$mock->method( 'verify_or_revert' )->willReturn( null );
-		$mock->method( 'verify_or_warn' )->willReturn( null );
-
-		return $mock;
 	}
 
 	// -------------------------------------------------------------------------

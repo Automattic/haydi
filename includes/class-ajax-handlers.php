@@ -23,55 +23,21 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 	/** Maximum AI→Tool→AI iterations per user request. */
 	const MAX_LOOP = 10;
 
-	/**
-	 * Tools that pause the agentic loop pending human approval.
-	 *
-	 * Each entry maps a tool name to:
-	 *   - response_key:    JSON key the front-end expects (e.g. 'pending_write').
-	 *   - fields:          tool-input keys to copy verbatim into the payload.
-	 *   - log_action:      audit-log verb to record.
-	 *   - log_path_field:  which field to record as the audit-log "path" column;
-	 *                      empty string = log no path.
-	 */
-	const APPROVAL_TOOLS = array(
-		'install_plugin'    => array(
-			'response_key'   => 'pending_install',
-			'fields'         => array( 'slug', 'reason' ),
-			'log_action'     => 'install_proposed',
-			'log_path_field' => 'slug',
-		),
-		'activate_plugin'   => array(
-			'response_key'   => 'pending_activate',
-			'fields'         => array( 'plugin', 'reason' ),
-			'log_action'     => 'activate_proposed',
-			'log_path_field' => 'plugin',
-		),
-		'deactivate_plugin' => array(
-			'response_key'   => 'pending_deactivate',
-			'fields'         => array( 'plugin', 'reason' ),
-			'log_action'     => 'deactivate_proposed',
-			'log_path_field' => 'plugin',
-		),
-	);
-
 	/** @var Haydi_Filesystem_Guard Filesystem access guard. */
 	private Haydi_Filesystem_Guard $guard;
 	/** @var Haydi_AI_Client AI client. */
 	private Haydi_AI_Client $client;
-	/** @var Haydi_File_Tool File-ops tool, retained for read-tool dispatch. */
-	private Haydi_File_Tool $file_tool;
-	/** @var Haydi_Plugin_Tool Plugin-ops tool, retained for read-tool dispatch. */
-	private Haydi_Plugin_Tool $plugin_tool;
-	/** @var Haydi_Fetch_Url_Tool URL fetch tool, retained for read-tool dispatch. */
-	private Haydi_Fetch_Url_Tool $url_tool;
+	/** @var Haydi_Tool_Catalog|null Canonical declarations and dispatch. */
+	private ?Haydi_Tool_Catalog $tool_catalog = null;
 	/** @var Haydi_Api_Token_Manager API token manager. */
 	private Haydi_Api_Token_Manager $token_manager;
 
-	public function __construct() {
+	public function __construct( ?Haydi_Tool_Catalog $tool_catalog = null ) {
 		parent::__construct( new Haydi_Audit_Logger() );
 
 		$this->guard         = new Haydi_Filesystem_Guard();
-		$this->client        = new Haydi_AI_Client();
+		$this->client        = new Haydi_AI_Client( $tool_catalog );
+		$this->tool_catalog  = $tool_catalog;
 		$this->token_manager = new Haydi_Api_Token_Manager();
 		$health              = new Haydi_Health_Check();
 
@@ -79,15 +45,21 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 		// own AJAX hooks. Centralising registration here would force this class
 		// to know every tool's hook name; delegating it keeps each tool a
 		// self-contained unit.
-		$this->file_tool   = new Haydi_File_Tool( $this->logger, $this->guard );
-		$this->plugin_tool = new Haydi_Plugin_Tool( $this->logger, $health );
-		$this->url_tool    = new Haydi_Fetch_Url_Tool( $this->logger );
-		$chat_store        = new Haydi_Chat_Store( $this->logger, $this->client );
+		$file_tool   = new Haydi_File_Tool( $this->logger, $this->guard );
+		$plugin_tool = new Haydi_Plugin_Tool( $this->logger, $health );
+		$chat_store  = new Haydi_Chat_Store( $this->logger, $this->client );
 
-		$this->file_tool->register();
-		$this->plugin_tool->register();
+		$file_tool->register();
+		$plugin_tool->register();
 		$chat_store->register();
 		$this->register();
+	}
+
+	private function tool_catalog(): Haydi_Tool_Catalog {
+		if ( ! isset( $this->tool_catalog ) || null === $this->tool_catalog ) {
+			$this->tool_catalog = haydi_get_tool_catalog();
+		}
+		return $this->tool_catalog;
 	}
 
 	public function register(): void {
@@ -314,22 +286,32 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 				$tool_id   = $block['id'] ?? '';
 				$input     = $block['input'] ?? array();
 
-				$core_proposals     = self::APPROVAL_TOOLS;
-				$action_proposals   = haydi_get_action_proposals();
-				$proposal_spec      = $core_proposals[ $tool_name ] ?? $action_proposals[ $tool_name ] ?? null;
-				$is_action_proposal = null !== $proposal_spec && ! isset( $core_proposals[ $tool_name ] );
+				$tool_started = false;
+				$tool_label   = 'Used tool';
+				$outcome      = $this->tool_catalog()->dispatch(
+					Haydi_Tool_Catalog::CHAT,
+					$tool_name,
+					$input,
+					function ( array $tool_activity ) use ( $emit, $tool_name, $input, &$tool_started, &$tool_label ): void {
+						$tool_started = true;
+						$tool_label   = $tool_activity['label'];
+						$this->emit_chat_event(
+							$emit,
+							'tool_start',
+							array(
+								'name'    => $tool_name,
+								'label'   => $tool_label,
+								'summary' => 'approval' === $tool_activity['effect']
+									? 'Preparing approval request.'
+									: $this->summarize_tool_start_activity( $tool_name, $input ),
+							)
+						);
+					}
+				);
 
-				if ( null !== $proposal_spec ) {
-					$this->emit_chat_event(
-						$emit,
-						'tool_start',
-						array(
-							'name'    => $tool_name,
-							'label'   => $this->tool_activity_label( $tool_name ),
-							'summary' => 'Preparing approval request.',
-						)
-					);
-
+				if ( is_wp_error( $outcome ) ) {
+					$result = 'Error: ' . $outcome->get_error_message();
+				} elseif ( 'action_proposal' === $outcome['kind'] ) {
 					if ( null !== $pending_payload ) {
 						$tool_results[] = array(
 							'type'        => 'tool_result',
@@ -340,42 +322,31 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 						continue;
 					}
 
-					$payload = array(
-						'tool_use_id' => $tool_id,
-						'tool_name'   => $tool_name,
-					);
-					foreach ( $proposal_spec['fields'] as $field ) {
-						$payload[ $field ] = $input[ $field ] ?? '';
-					}
-					$log_path = '' !== $proposal_spec['log_path_field']
-						? ( $payload[ $proposal_spec['log_path_field'] ] ?? '' )
-						: '';
-					$this->logger->log( $proposal_spec['log_action'], $log_path, $payload['reason'] ?? '' );
+					$audit = $outcome['audit'];
+					$this->logger->log( $audit['action'], $audit['path'], $audit['reason'] );
 
-					if ( $is_action_proposal ) {
-						$pending_key             = 'pending_action';
-						$payload['label']        = $proposal_spec['label'];
-						$payload['ajax_action']  = $proposal_spec['ajax_action'];
-						$payload['payload_keys'] = $proposal_spec['fields'];
-					} else {
-						$pending_key = $proposal_spec['response_key'];
-					}
-					$pending_payload = $payload;
+					$pending_key                    = $outcome['response_key'];
+					$pending_payload                = $outcome['payload'];
+					$pending_payload['tool_use_id'] = $tool_id;
 					continue;
+				} else {
+					$result     = $outcome['content'];
+					$tool_label = $outcome['activity']['label'];
 				}
 
-				// Execute safe read-only tools.
-				$this->emit_chat_event(
-					$emit,
-					'tool_start',
-					array(
-						'name'    => $tool_name,
-						'label'   => $this->tool_activity_label( $tool_name ),
-						'summary' => $this->summarize_tool_start_activity( $tool_name, $input ),
-					)
-				);
-				$result        = $this->execute_read_tool( $tool_name, $input );
-				$activity_item = $this->build_tool_activity( $tool_name, $input, $result );
+				if ( ! $tool_started ) {
+					$this->emit_chat_event(
+						$emit,
+						'tool_start',
+						array(
+							'name'    => $tool_name,
+							'label'   => $tool_label,
+							'summary' => $this->summarize_tool_start_activity( $tool_name, $input ),
+						)
+					);
+				}
+
+				$activity_item = $this->build_tool_activity( $tool_name, $tool_label, $input, $result );
 				if ( null !== $activity_item ) {
 					$activity[] = $activity_item;
 				}
@@ -790,26 +761,20 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 		$rule_10           = $this->build_rule_10( $can_edit_plugins, $can_edit_themes );
 
 		$action_proposals = haydi_get_action_proposals();
-
-		$tools = "TOOLS:\n"
-			. "- list_files(path) — browse directories\n"
-			. "- read_file(path) — read a file\n"
-			. "- search_files(query, path, mode, extensions, max_results) — search file contents\n"
-			. "- fetch_url(url) — fetch a public HTTP/HTTPS URL\n"
-			. "- list_plugins() — list installed plugins with status and file paths\n"
-			. "- list_posts(status?, type?, limit?) — list posts/pages (default: 50 most recently modified)\n"
-			. "- list_users(role?, limit?) — list users (default: 50 most recently registered)\n"
-			. "- list_options(search?) — autoloaded options when search is empty; otherwise filtered by option_name\n"
-			. "- list_backups(path?) — list file backups\n"
-			. "- install_plugin(slug, reason) — install a plugin from WordPress.org\n"
-			. "- activate_plugin(plugin, reason) — activate an installed plugin\n"
-			. "- deactivate_plugin(plugin, reason) — deactivate an active plugin\n";
-
-		foreach ( $action_proposals as $config ) {
-			if ( ! empty( $config['tool_description'] ) ) {
-				$tools .= '- ' . $config['tool_description'] . "\n";
+		$legacy_tools     = array();
+		foreach ( haydi_get_legacy_action_proposals() as $name => $proposal ) {
+			// Omit a legacy description when a catalog-native approval Tool owns
+			// the same name in the effective proposal registry.
+			if ( ! isset( $action_proposals[ $name ] ) || $action_proposals[ $name ] !== $proposal ) {
+				continue;
+			}
+			if ( ! empty( $proposal['tool_description'] ) ) {
+				$legacy_tools[] = '- ' . $proposal['tool_description'];
 			}
 		}
+		$legacy_tools_block = empty( $legacy_tools )
+			? ''
+			: "\n\nADDITIONAL APPROVAL TOOLS:\n" . implode( "\n", $legacy_tools );
 
 		$approval = "HOW APPROVAL WORKS:\n"
 			. $this->build_approval_workflow_section();
@@ -825,8 +790,8 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 
 		$prompt = 'You are a WordPress assistant running inside WP-Admin. Mutating actions require human approval.'
 			. "\n\nALLOWED DIRECTORIES (for file operations only):\n" . $list
-			. "\n\n" . $tools
 			. "\n\n" . $approval
+			. $legacy_tools_block
 			. "\n\nLINKING TO FILES:\n" . $linking_block
 			. "\n\nGENERATED PLUGIN VISIBILITY:\n" . $visibility_block
 			. "\n\nTHIRD-PARTY PLUGIN CUSTOMIZATION:\n" . $third_party_block
@@ -854,7 +819,7 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 		return implode(
 			"\n",
 			array(
-				'The approval tool call is an approval request, not direct execution. Calling install_plugin, activate_plugin, deactivate_plugin, write_file, edit, run_query, run_php, or another approval tool only shows the user an Approve/Decline UI with the full parameters.',
+				'An approval tool call is an approval request, not direct execution. It only shows the user an Approve/Decline UI with the full parameters.',
 				'If the user asks for an action that has a tool, call the tool. Text such as "I can do that", "shall I proceed?", "approve this", or "let me know if you want me to continue" does nothing and is a failed response.',
 				'Use at most one approval tool call per assistant response. If more work remains, wait for the tool_result from the approval UI, then continue with the next tool call.',
 				'Plugin workflow: call list_plugins before install_plugin or activate_plugin. If the user asks to install and activate a plugin, first call install_plugin. After the approval result returns a plugin_file, call activate_plugin with that exact plugin_file. If list_plugins shows the plugin is already installed but inactive, skip install_plugin and call activate_plugin with its file path.',
@@ -946,128 +911,6 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 		return 'After a successful write/move/copy/delete, mention the affected file(s) by name and link them — prefer the matching plugin-editor.php / theme-editor.php URL when available for that file type, otherwise use wpc-view:<absolute-path>.';
 	}
 
-	/**
-	 * Dispatch a read-only tool call to the appropriate tool class. Each tool
-	 * returns a string ready to feed back to the AI as a tool_result.
-	 */
-	private function execute_read_tool( string $name, array $input ): string {
-		$filtered = apply_filters( 'haydi_execute_read_tool', null, $name, $input );
-		if ( null !== $filtered ) {
-			if ( is_wp_error( $filtered ) ) {
-				return 'Error: ' . $filtered->get_error_message();
-			}
-
-			if ( is_string( $filtered ) ) {
-				return $filtered;
-			}
-
-			$encoded = wp_json_encode( $filtered );
-
-			return false !== $encoded ? $encoded : 'Error: Tool result could not be encoded.';
-		}
-
-		switch ( $name ) {
-			case 'list_files':
-				return $this->file_tool->list_files_for_ai( $input['path'] ?? '' );
-			case 'read_file':
-				return $this->file_tool->read_file_for_ai( $input['path'] ?? '' );
-			case 'search_files':
-				return $this->file_tool->search_files_for_ai(
-					$input['query'] ?? '',
-					$input['path'] ?? '',
-					$input['mode'] ?? '',
-					$input['extensions'] ?? '',
-					$input['max_results'] ?? ''
-				);
-			case 'fetch_url':
-				return $this->url_tool->fetch_for_ai( $input['url'] ?? '' );
-			case 'list_plugins':
-				return $this->plugin_tool->list_plugins_for_ai();
-			case 'list_backups':
-				return $this->file_tool->list_backups_for_ai( $input['path'] ?? '' );
-			case 'list_posts':
-				return $this->list_posts_for_ai( $input['status'] ?? '', $input['type'] ?? '', $input['limit'] ?? '' );
-			case 'list_users':
-				return $this->list_users_for_ai( $input['role'] ?? '', $input['limit'] ?? '' );
-			case 'list_options':
-				return $this->list_options_for_ai( $input['search'] ?? '' );
-			default:
-				return "Error: Unknown tool '{$name}'.";
-		}
-	}
-
-	private function list_posts_for_ai( string $status = '', string $type = '', string $limit = '' ): string {
-		$args  = array(
-			'post_status'    => '' !== $status ? sanitize_text_field( $status ) : 'any',
-			'post_type'      => '' !== $type ? sanitize_text_field( $type ) : array( 'post', 'page' ),
-			'posts_per_page' => '' !== $limit ? min( 200, (int) $limit ) : 50,
-			'orderby'        => 'modified',
-			'order'          => 'DESC',
-		);
-		$posts = get_posts( $args );
-		$rows  = array();
-		foreach ( $posts as $post ) {
-			$rows[] = array(
-				'ID'     => $post->ID,
-				'title'  => $post->post_title,
-				'status' => $post->post_status,
-				'type'   => $post->post_type,
-				'date'   => $post->post_date,
-			);
-		}
-		$this->logger->log( 'list_posts', '' );
-		return wp_json_encode( $rows );
-	}
-
-	private function list_users_for_ai( string $role = '', string $limit = '' ): string {
-		$args = array(
-			'number'  => '' !== $limit ? min( 200, (int) $limit ) : 50,
-			'orderby' => 'user_registered',
-			'order'   => 'DESC',
-		);
-		if ( '' !== $role ) {
-			$args['role'] = sanitize_text_field( $role );
-		}
-		$users = get_users( $args );
-		$rows  = array();
-		foreach ( $users as $user ) {
-			$rows[] = array(
-				'ID'           => $user->ID,
-				'login'        => $user->user_login,
-				'email'        => $user->user_email,
-				'display_name' => $user->display_name,
-				'roles'        => $user->roles,
-			);
-		}
-		$this->logger->log( 'list_users', '' );
-		return wp_json_encode( $rows );
-	}
-
-	private function list_options_for_ai( string $search = '' ): string {
-		global $wpdb;
-		if ( '' !== $search ) {
-			$like = $wpdb->esc_like( sanitize_text_field( $search ) );
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-			$rows = $wpdb->get_results(
-				$wpdb->prepare( "SELECT option_name, option_value, autoload FROM {$wpdb->options} WHERE option_name LIKE %s LIMIT 100", '%' . $like . '%' ),
-				ARRAY_A
-			);
-		} else {
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-			$rows = $wpdb->get_results(
-				"SELECT option_name, option_value, autoload FROM {$wpdb->options} WHERE autoload = 'yes' ORDER BY option_name LIMIT 100",
-				ARRAY_A
-			);
-		}
-		foreach ( $rows as &$row ) {
-			if ( strlen( $row['option_value'] ) > 500 ) {
-				$row['option_value'] = substr( $row['option_value'], 0, 500 ) . '...(truncated)';
-			}
-		}
-		unset( $row );
-		$this->logger->log( 'list_options', '', $search );
-		return wp_json_encode( $rows );
-	}
 
 	/**
 	 * Build a safe, compact activity row for a read-only tool call.
@@ -1075,15 +918,13 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 	 * This is UI/debug metadata only. It intentionally avoids raw file contents,
 	 * fetched page text, and search snippets.
 	 */
-	private function build_tool_activity( string $name, array $input, string $result ): ?array {
+	private function build_tool_activity( string $name, string $label, array $input, string $result ): ?array {
 		if ( ! defined( 'HAYDI_SHOW_TOOL_ACTIVITY' ) || ! HAYDI_SHOW_TOOL_ACTIVITY ) {
 			return null;
 		}
 
 		$is_error = str_starts_with( $result, 'Error: ' );
 		$summary  = $is_error ? substr( $result, 7, 180 ) : '';
-		$label    = $this->tool_activity_label( $name );
-
 		if ( ! $is_error ) {
 			$summary = match ( $name ) {
 				'list_files'   => $this->summarize_list_files_activity( $input, $result ),
@@ -1105,28 +946,6 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 			'status'  => $is_error ? 'error' : 'ok',
 			'summary' => $summary,
 		);
-	}
-
-	private function tool_activity_label( string $name ): string {
-		$action_proposals = haydi_get_action_proposals();
-		if ( isset( $action_proposals[ $name ] ) ) {
-			return 'Prepared ' . strtolower( $action_proposals[ $name ]['label'] );
-		}
-		return match ( $name ) {
-			'list_files'        => 'Listed files',
-			'read_file'         => 'Read file',
-			'search_files'      => 'Searched files',
-			'fetch_url'         => 'Fetched URL',
-			'list_plugins'      => 'Listed plugins',
-			'list_posts'        => 'Listed posts',
-			'list_users'        => 'Listed users',
-			'list_options'      => 'Listed options',
-			'install_plugin'    => 'Prepared install',
-			'activate_plugin'   => 'Prepared activation',
-			'deactivate_plugin' => 'Prepared deactivation',
-			'list_backups'      => 'Listed backups',
-			default             => 'Used tool',
-		};
 	}
 
 	private function summarize_tool_start_activity( string $name, array $input ): string {
