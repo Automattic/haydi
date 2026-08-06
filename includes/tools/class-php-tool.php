@@ -46,9 +46,6 @@ function haydi_register_php_tool(
 					'required'    => array( 'code' ),
 				),
 			),
-			'presenters'     => array(
-				'mcp' => static fn( array $result ): string => $result['output'],
-			),
 		),
 		static function ( array $arguments ) use ( $logger, $health ): array|WP_Error {
 			$result = haydi_php_execute(

@@ -48,11 +48,15 @@ final class AjaxApprovalHandlerTest extends TestCase {
 		parent::tearDown();
 	}
 
-	public function test_approved_tool_returns_raw_and_provider_facing_results(): void {
+	public function test_approved_tool_returns_one_structured_result(): void {
 		$catalog = $this->approval_catalog(
 			static fn( array $arguments ): array => array(
 				'message' => 'Cache cleared.',
 				'reason'  => $arguments['reason'],
+				'details' => array(
+					'status' => 'complete',
+					'keys'   => array( 'pages', 'fragments' ),
+				),
 			)
 		);
 		$handler = new Haydi_Ajax_Handlers( $catalog );
@@ -68,13 +72,17 @@ final class AjaxApprovalHandlerTest extends TestCase {
 		$this->assertTrue( $this->success );
 		$this->assertSame( 'clear_cache', $this->data['tool_name'] );
 		$this->assertSame(
-			array( 'message' => 'Cache cleared.', 'reason' => 'Refresh pages.' ),
+			array(
+				'message' => 'Cache cleared.',
+				'reason'  => 'Refresh pages.',
+				'details' => array(
+					'status' => 'complete',
+					'keys'   => array( 'pages', 'fragments' ),
+				),
+			),
 			$this->data['result']
 		);
-		$this->assertSame(
-			'{"message":"Cache cleared.","reason":"Refresh pages."}',
-			$this->data['tool_result']
-		);
+		$this->assertArrayNotHasKey( 'tool_result', $this->data );
 	}
 
 	public function test_approved_tool_preserves_safe_error_output(): void {

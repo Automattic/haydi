@@ -41,7 +41,7 @@ class Haydi_Plugin_Tool {
 					),
 				),
 			),
-			fn(): string => $this->list_plugins_for_ai()
+			fn(): array => $this->list_plugins_for_ai()
 		);
 
 		$catalog->register(
@@ -77,9 +77,6 @@ class Haydi_Plugin_Tool {
 						'required'    => array( 'slug' ),
 						'available'   => static fn(): bool => wp_is_file_mod_allowed( 'plugin_files' ),
 					),
-				),
-				'presenters'     => array(
-					'mcp' => static fn( array $result ): string => "Plugin '{$result['slug']}' installed successfully. Plugin file: {$result['plugin_file']}",
 				),
 			),
 			fn( array $arguments ): array|WP_Error => $this->execute_install(
@@ -121,9 +118,6 @@ class Haydi_Plugin_Tool {
 						'required'    => array( 'plugin' ),
 					),
 				),
-				'presenters'     => array(
-					'mcp' => static fn( array $result ): string => "Plugin '{$result['plugin']}' activated successfully.",
-				),
 			),
 			fn( array $arguments ): array|WP_Error => $this->execute_activate(
 				(string) ( $arguments['plugin'] ?? '' ),
@@ -164,9 +158,6 @@ class Haydi_Plugin_Tool {
 						'required'    => array( 'plugin' ),
 					),
 				),
-				'presenters'     => array(
-					'mcp' => static fn( array $result ): string => "Plugin '{$result['plugin']}' deactivated successfully.",
-				),
 			),
 			fn( array $arguments ): array|WP_Error => $this->execute_deactivate(
 				(string) ( $arguments['plugin'] ?? '' ),
@@ -180,10 +171,10 @@ class Haydi_Plugin_Tool {
 	// -------------------------------------------------------------------------
 
 	/**
-	 * Return a JSON array describing every installed plugin (file, name,
-	 * version, active flag) for the AI's reference.
+	 * Return a structured inventory describing every installed plugin (file,
+	 * name, version, active flag) for the AI's reference.
 	 */
-	public function list_plugins_for_ai(): string {
+	public function list_plugins_for_ai(): array {
 		if ( ! function_exists( 'get_plugins' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/plugin.php';
 		}
@@ -199,7 +190,7 @@ class Haydi_Plugin_Tool {
 			);
 		}
 		$this->logger->log( 'list_plugins', '' );
-		return wp_json_encode( $plugins_list );
+		return array( 'plugins' => $plugins_list );
 	}
 
 	// -------------------------------------------------------------------------

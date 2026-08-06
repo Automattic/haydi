@@ -51,7 +51,7 @@ class Haydi_File_Tool extends Haydi_Ajax_Tool_Base {
 					),
 				),
 			),
-			fn( array $arguments ): string => $this->list_files_for_ai( (string) ( $arguments['path'] ?? '' ) )
+			fn( array $arguments ): array|WP_Error => $this->list_files_for_ai( (string) ( $arguments['path'] ?? '' ) )
 		);
 
 		$catalog->register(
@@ -78,7 +78,7 @@ class Haydi_File_Tool extends Haydi_Ajax_Tool_Base {
 					),
 				),
 			),
-			fn( array $arguments ): string => $this->read_file_for_ai( (string) ( $arguments['path'] ?? '' ) )
+			fn( array $arguments ): array|WP_Error => $this->read_file_for_ai( (string) ( $arguments['path'] ?? '' ) )
 		);
 
 		$catalog->register(
@@ -135,7 +135,7 @@ class Haydi_File_Tool extends Haydi_Ajax_Tool_Base {
 					),
 				),
 			),
-			fn( array $arguments ): string => $this->search_files_for_ai(
+			fn( array $arguments ): array|WP_Error => $this->search_files_for_ai(
 				(string) ( $arguments['query'] ?? '' ),
 				(string) ( $arguments['path'] ?? '' ),
 				(string) ( $arguments['mode'] ?? '' ),
@@ -168,7 +168,7 @@ class Haydi_File_Tool extends Haydi_Ajax_Tool_Base {
 					),
 				),
 			),
-			fn( array $arguments ): string => $this->list_backups_for_ai( (string) ( $arguments['path'] ?? '' ) )
+			fn( array $arguments ): array => $this->list_backups_for_ai( (string) ( $arguments['path'] ?? '' ) )
 		);
 
 		$catalog->register(
@@ -187,7 +187,7 @@ class Haydi_File_Tool extends Haydi_Ajax_Tool_Base {
 					'mcp'  => array( 'name' => 'haydi_get_allowed_roots' ),
 				),
 			),
-			fn(): array => array_values( $this->guard->get_allowed_roots() )
+			fn(): array => array( 'allowed_roots' => array_values( $this->guard->get_allowed_roots() ) )
 		);
 	}
 
@@ -196,27 +196,33 @@ class Haydi_File_Tool extends Haydi_Ajax_Tool_Base {
 	// -------------------------------------------------------------------------
 
 	/**
-	 * Return a JSON-encoded directory listing for the AI, or a leading "Error: " string on failure.
+	 * Return a structured directory listing for the AI.
 	 *
 	 * @param string $path Directory path to list.
-	 * @return string
+	 * @return array|WP_Error
 	 */
-	public function list_files_for_ai( string $path ): string {
+	public function list_files_for_ai( string $path ): array|WP_Error {
 		$result = $this->guard->list_files( $path );
 		if ( is_wp_error( $result ) ) {
-			return 'Error: ' . $result->get_error_message();
+			return $result;
 		}
 		$this->logger->log( 'list_files', $path );
-		return wp_json_encode( $result );
+		return array(
+			'path'  => $path,
+			'files' => $result,
+		);
 	}
 
-	public function read_file_for_ai( string $path ): string {
+	public function read_file_for_ai( string $path ): array|WP_Error {
 		$result = $this->guard->read_file( $path );
 		if ( is_wp_error( $result ) ) {
-			return 'Error: ' . $result->get_error_message();
+			return $result;
 		}
 		$this->logger->log( 'read_file', $path );
-		return $result;
+		return array(
+			'path'    => $path,
+			'content' => $result,
+		);
 	}
 
 	public function search_files_for_ai(
@@ -225,7 +231,7 @@ class Haydi_File_Tool extends Haydi_Ajax_Tool_Base {
 		string $mode = 'literal',
 		string $extensions = '',
 		string $max_results = ''
-	): string {
+	): array|WP_Error {
 		$max_results_int = Haydi_Filesystem_Guard::DEFAULT_SEARCH_RESULTS;
 		if ( '' !== trim( $max_results ) ) {
 			$max_results_int = (int) $max_results;
@@ -233,30 +239,20 @@ class Haydi_File_Tool extends Haydi_Ajax_Tool_Base {
 
 		$result = $this->guard->search_files( $query, $path, $mode, $extensions, $max_results_int );
 		if ( is_wp_error( $result ) ) {
-			return 'Error: ' . $result->get_error_message();
+			return $result;
 		}
 		$this->logger->log( 'search_files', $path, $query );
-		return wp_json_encode( $result );
+		return $result;
 	}
 
-	public function list_backups_for_ai( string $original_path = '' ): string {
+	public function list_backups_for_ai( string $original_path = '' ): array {
 		$backups = $this->guard->list_backups( $original_path );
-		if ( empty( $backups ) ) {
-			return $original_path
-				? 'No backups found for ' . basename( $original_path ) . '.'
-				: 'No backups found.';
+		foreach ( $backups as &$backup ) {
+			$backup['date'] = gmdate( 'c', $backup['timestamp'] );
 		}
-		$lines = array( 'Available backups (newest first):' );
-		foreach ( $backups as $b ) {
-			$path_info = $b['original_path'] ? 'original_path: ' . $b['original_path'] : 'original_basename: ' . $b['original_basename'] . ' (full path unknown — ask the user)';
-			$lines[]   = sprintf(
-				'- backup_file: %s | %s | date: %s',
-				$b['backup_file'],
-				$path_info,
-				gmdate( 'Y-m-d H:i:s', $b['timestamp'] ) . ' UTC'
-			);
-		}
-		return implode( "\n", $lines );
+		unset( $backup );
+
+		return array( 'backups' => $backups );
 	}
 
 	// -------------------------------------------------------------------------

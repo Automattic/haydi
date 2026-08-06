@@ -490,7 +490,8 @@ class Haydi_AI_Client {
 
 	/**
 	 * Build MessagePart[] for a user message.
-	 * Content is a plain string or an array of text/tool_result blocks.
+	 * Content is a plain string or an array of text/tool_result blocks. A
+	 * tool_result may hold any JSON-compatible value until an Adapter serializes it.
 	 */
 	private function user_parts(
 		string|array $content,

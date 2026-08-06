@@ -115,11 +115,12 @@ final class ToolCatalogTest extends TestCase {
 		$this->assertSame( array( 'value' => 'hello' ), $received );
 		$this->assertSame( 'result', $outcome['kind'] );
 		$this->assertSame( 'echo_value', $outcome['name'] );
-		$this->assertSame( '{"echo":"hello"}', $outcome['content'] );
-		$this->assertSame( array( 'echo' => 'hello' ), $outcome['data'] );
+		$this->assertSame( array( 'echo' => 'hello' ), $outcome['result'] );
+		$this->assertArrayNotHasKey( 'content', $outcome );
+		$this->assertArrayNotHasKey( 'data', $outcome );
 	}
 
-	public function test_non_string_scalar_results_are_json_encoded(): void {
+	public function test_scalar_results_remain_native(): void {
 		$catalog = new Haydi_Tool_Catalog();
 		$catalog->register( $this->automatic_definition( 'false_value' ), static fn(): bool => false );
 
@@ -129,7 +130,39 @@ final class ToolCatalogTest extends TestCase {
 			array( 'value' => 'ignored' )
 		);
 
-		$this->assertSame( 'false', $outcome['content'] );
+		$this->assertFalse( $outcome['result'] );
+	}
+
+	public function test_presenter_returns_a_native_structured_result(): void {
+		$catalog    = new Haydi_Tool_Catalog();
+		$definition = $this->automatic_definition( 'presented_value' );
+		$definition['presenters'] = array(
+			'chat' => static fn( array $result ): array => array(
+				'value' => $result['value'],
+				'meta'  => array( 'presented' => true ),
+			),
+		);
+		$catalog->register(
+			$definition,
+			static fn(): array => array(
+				'value'   => 'hello',
+				'private' => 'not presented',
+			)
+		);
+
+		$outcome = $catalog->dispatch(
+			Haydi_Tool_Catalog::CHAT,
+			'presented_value',
+			array( 'value' => 'ignored' )
+		);
+
+		$this->assertSame(
+			array(
+				'value' => 'hello',
+				'meta'  => array( 'presented' => true ),
+			),
+			$outcome['result']
+		);
 	}
 
 	public function test_chat_returns_action_proposal_without_executing_approval_tool(): void {
@@ -182,7 +215,7 @@ final class ToolCatalogTest extends TestCase {
 		);
 	}
 
-	public function test_execute_approved_runs_the_registered_implementation_and_returns_raw_data(): void {
+	public function test_execute_approved_runs_the_registered_implementation_and_returns_structured_result(): void {
 		$received = null;
 		$catalog  = new Haydi_Tool_Catalog();
 		$catalog->register(
@@ -219,8 +252,9 @@ final class ToolCatalogTest extends TestCase {
 		$this->assertSame( array( 'reason' => 'Refresh pages.' ), $received );
 		$this->assertSame( 'result', $outcome['kind'] );
 		$this->assertSame( 'clear_cache_internal', $outcome['name'] );
-		$this->assertSame( array( 'cleared' => true ), $outcome['data'] );
-		$this->assertSame( '{"cleared":true}', $outcome['content'] );
+		$this->assertSame( array( 'cleared' => true ), $outcome['result'] );
+		$this->assertArrayNotHasKey( 'content', $outcome );
+		$this->assertArrayNotHasKey( 'data', $outcome );
 	}
 
 	public function test_execute_approved_rejects_automatic_and_unknown_tools(): void {
@@ -459,8 +493,8 @@ final class ToolCatalogTest extends TestCase {
 
 		$this->assertSame( array( 'haydi_catalog_tool', 'legacy_extra' ), array_column( $declarations, 'name' ) );
 		$this->assertSame( 'Return the supplied value.', $declarations[0]['description'] );
-		$this->assertSame( 'catalog result', $catalog_call['content'] );
-		$this->assertSame( 'legacy result', $legacy_call['content'] );
+		$this->assertSame( 'catalog result', $catalog_call['result'] );
+		$this->assertSame( 'legacy result', $legacy_call['result'] );
 	}
 
 	public function test_unknown_tool_returns_wp_error(): void {
@@ -583,7 +617,7 @@ final class ToolCatalogTest extends TestCase {
 		$this->assertSame( 'hello', $outcome['payload']['value'] );
 	}
 
-	public function test_legacy_read_override_is_final_and_json_encodes_non_strings(): void {
+	public function test_legacy_read_override_is_final_and_preserves_native_result(): void {
 		$catalog    = new Haydi_Tool_Catalog();
 		$definition = $this->automatic_definition( 'overridden_tool' );
 		$definition['presenters'] = array(
@@ -603,7 +637,7 @@ final class ToolCatalogTest extends TestCase {
 		);
 
 		$this->assertSame( 'result', $outcome['kind'] );
-		$this->assertSame( 'false', $outcome['content'] );
+		$this->assertFalse( $outcome['result'] );
 	}
 
 	public function test_failed_registration_does_not_leave_partial_aliases(): void {

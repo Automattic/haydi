@@ -110,7 +110,7 @@ class AjaxHandlersPluginActionsTest extends TestCase {
 	// Haydi_Plugin_Tool::list_plugins_for_ai()
 	// =======================================================================
 
-	public function test_list_plugins_returns_json_array(): void {
+	public function test_list_plugins_returns_structured_array(): void {
 		Functions\when( 'get_plugins' )->justReturn( array(
 			'akismet/akismet.php'         => array( 'Name' => 'Akismet',     'Version' => '5.0' ),
 			'woocommerce/woocommerce.php' => array( 'Name' => 'WooCommerce', 'Version' => '8.0' ),
@@ -118,10 +118,10 @@ class AjaxHandlersPluginActionsTest extends TestCase {
 		Functions\when( 'get_option' )->justReturn( array() );
 
 		$result  = $this->pluginHandler->list_plugins_for_ai();
-		$decoded = json_decode( $result, true );
+		$plugins = $result['plugins'];
 
-		$this->assertIsArray( $decoded );
-		$this->assertCount( 2, $decoded );
+		$this->assertIsArray( $plugins );
+		$this->assertCount( 2, $plugins );
 	}
 
 	public function test_list_plugins_marks_active_plugin_correctly(): void {
@@ -131,9 +131,8 @@ class AjaxHandlersPluginActionsTest extends TestCase {
 		) );
 		Functions\when( 'get_option' )->justReturn( array( 'woocommerce/woocommerce.php' ) );
 
-		$result  = $this->pluginHandler->list_plugins_for_ai();
-		$decoded = json_decode( $result, true );
-		$byFile  = array_column( $decoded, null, 'file' );
+		$result = $this->pluginHandler->list_plugins_for_ai();
+		$byFile = array_column( $result['plugins'], null, 'file' );
 
 		$this->assertFalse( $byFile['akismet/akismet.php']['active'] );
 		$this->assertTrue( $byFile['woocommerce/woocommerce.php']['active'] );
@@ -143,10 +142,9 @@ class AjaxHandlersPluginActionsTest extends TestCase {
 		Functions\when( 'get_plugins' )->justReturn( array() );
 		Functions\when( 'get_option' )->justReturn( array() );
 
-		$result  = $this->pluginHandler->list_plugins_for_ai();
-		$decoded = json_decode( $result, true );
+		$result = $this->pluginHandler->list_plugins_for_ai();
 
-		$this->assertSame( array(), $decoded );
+		$this->assertSame( array(), $result['plugins'] );
 	}
 
 	public function test_list_plugins_includes_file_name_and_version(): void {
@@ -156,12 +154,12 @@ class AjaxHandlersPluginActionsTest extends TestCase {
 		Functions\when( 'get_option' )->justReturn( array() );
 
 		$result  = $this->pluginHandler->list_plugins_for_ai();
-		$decoded = json_decode( $result, true );
+		$plugins = $result['plugins'];
 
-		$this->assertSame( 'hello-dolly/hello.php', $decoded[0]['file'] );
-		$this->assertSame( 'Hello Dolly',           $decoded[0]['name'] );
-		$this->assertSame( '1.7.2',                 $decoded[0]['version'] );
-		$this->assertFalse( $decoded[0]['active'] );
+		$this->assertSame( 'hello-dolly/hello.php', $plugins[0]['file'] );
+		$this->assertSame( 'Hello Dolly',           $plugins[0]['name'] );
+		$this->assertSame( '1.7.2',                 $plugins[0]['version'] );
+		$this->assertFalse( $plugins[0]['active'] );
 	}
 
 	public function test_list_plugins_all_active_when_all_in_active_option(): void {
@@ -171,10 +169,9 @@ class AjaxHandlersPluginActionsTest extends TestCase {
 		) );
 		Functions\when( 'get_option' )->justReturn( array( 'plugin-a/plugin-a.php', 'plugin-b/plugin-b.php' ) );
 
-		$result  = $this->pluginHandler->list_plugins_for_ai();
-		$decoded = json_decode( $result, true );
+		$result = $this->pluginHandler->list_plugins_for_ai();
 
-		foreach ( $decoded as $plugin ) {
+		foreach ( $result['plugins'] as $plugin ) {
 			$this->assertTrue( $plugin['active'], "Plugin '{$plugin['file']}' should be active" );
 		}
 	}

@@ -123,9 +123,8 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 
 		wp_send_json_success(
 			array(
-				'tool_name'   => $tool_name,
-				'result'      => $outcome['data'],
-				'tool_result' => $outcome['content'],
+				'tool_name' => $tool_name,
+				'result'    => $outcome['result'],
 			)
 		);
 	}
@@ -341,7 +340,8 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 					}
 				);
 
-				if ( is_wp_error( $outcome ) ) {
+				$is_error = is_wp_error( $outcome );
+				if ( $is_error ) {
 					$result = 'Error: ' . $outcome->get_error_message();
 				} elseif ( 'action_proposal' === $outcome['kind'] ) {
 					if ( null !== $pending_payload ) {
@@ -361,7 +361,7 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 					$pending_payload['tool_use_id'] = $tool_id;
 					continue;
 				} else {
-					$result     = $outcome['content'];
+					$result     = $outcome['result'];
 					$tool_label = $outcome['activity']['label'];
 				}
 
@@ -377,7 +377,7 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 					);
 				}
 
-				$activity_item = $this->build_tool_activity( $tool_name, $tool_label, $input, $result );
+				$activity_item = $this->build_tool_activity( $tool_name, $tool_label, $input, $result, $is_error );
 				if ( null !== $activity_item ) {
 					$activity[] = $activity_item;
 				}
@@ -387,14 +387,14 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 					array(
 						'name'     => $tool_name,
 						'activity' => $activity_item,
-						'status'   => is_string( $result ) && str_starts_with( $result, 'Error: ' ) ? 'error' : 'ok',
+						'status'   => $is_error ? 'error' : 'ok',
 					)
 				);
 				$tool_results[] = array(
 					'type'        => 'tool_result',
 					'tool_use_id' => $tool_id,
 					'name'        => $tool_name,
-					'content'     => is_string( $result ) ? $result : wp_json_encode( $result ),
+					'content'     => $result,
 				);
 			}
 
@@ -949,13 +949,13 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 	 * This is UI/debug metadata only. It intentionally avoids raw file contents,
 	 * fetched page text, and search snippets.
 	 */
-	private function build_tool_activity( string $name, string $label, array $input, string $result ): ?array {
+	private function build_tool_activity( string $name, string $label, array $input, mixed $result, bool $is_error = false ): ?array {
 		if ( ! defined( 'HAYDI_SHOW_TOOL_ACTIVITY' ) || ! HAYDI_SHOW_TOOL_ACTIVITY ) {
 			return null;
 		}
 
-		$is_error = str_starts_with( $result, 'Error: ' );
-		$summary  = $is_error ? substr( $result, 7, 180 ) : '';
+		$is_error = $is_error || ( is_string( $result ) && str_starts_with( $result, 'Error: ' ) );
+		$summary  = $is_error && is_string( $result ) ? substr( $result, 7, 180 ) : '';
 		if ( ! $is_error ) {
 			$summary = match ( $name ) {
 				'list_files'   => $this->summarize_list_files_activity( $input, $result ),
@@ -963,10 +963,10 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 				'search_files' => $this->summarize_search_files_activity( $input, $result ),
 				'fetch_url'    => $this->summarize_fetch_url_activity( $input, $result ),
 				'list_plugins' => $this->summarize_list_plugins_activity( $result ),
-				'list_backups' => $result,
-				'list_posts'      => 'Listed ' . count( (array) json_decode( $result, true ) ) . ' posts.',
-				'list_users'      => 'Listed ' . count( (array) json_decode( $result, true ) ) . ' users.',
-				'list_options' => 'Listed ' . count( (array) json_decode( $result, true ) ) . ' options.',
+				'list_backups' => 'Listed ' . count( (array) ( is_array( $result ) ? ( $result['backups'] ?? array() ) : array() ) ) . ' backups.',
+				'list_posts'   => 'Listed ' . count( (array) ( is_array( $result ) ? ( $result['posts'] ?? array() ) : array() ) ) . ' posts.',
+				'list_users'   => 'Listed ' . count( (array) ( is_array( $result ) ? ( $result['users'] ?? array() ) : array() ) ) . ' users.',
+				'list_options' => 'Listed ' . count( (array) ( is_array( $result ) ? ( $result['options'] ?? array() ) : array() ) ) . ' options.',
 				default        => 'Completed.',
 			};
 		}
@@ -998,8 +998,8 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 		};
 	}
 
-	private function summarize_list_files_activity( array $input, string $result ): string {
-		$data = json_decode( $result, true );
+	private function summarize_list_files_activity( array $input, mixed $result ): string {
+		$data = is_array( $result ) ? ( $result['files'] ?? null ) : null;
 		if ( ! is_array( $data ) ) {
 			return 'Completed.';
 		}
@@ -1022,16 +1022,17 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 		);
 	}
 
-	private function summarize_read_file_activity( array $input, string $result ): string {
+	private function summarize_read_file_activity( array $input, mixed $result ): string {
+		$content = is_array( $result ) ? (string) ( $result['content'] ?? '' ) : (string) $result;
 		return sprintf(
 			'%s · %s',
 			$this->display_path( (string) ( $input['path'] ?? '' ) ),
-			$this->format_activity_bytes( strlen( $result ) )
+			$this->format_activity_bytes( strlen( $content ) )
 		);
 	}
 
-	private function summarize_search_files_activity( array $input, string $result ): string {
-		$data = json_decode( $result, true );
+	private function summarize_search_files_activity( array $input, mixed $result ): string {
+		$data = $result;
 		if ( ! is_array( $data ) ) {
 			return 'Completed.';
 		}
@@ -1054,16 +1055,17 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 		);
 	}
 
-	private function summarize_fetch_url_activity( array $input, string $result ): string {
+	private function summarize_fetch_url_activity( array $input, mixed $result ): string {
+		$content = is_array( $result ) ? (string) ( $result['content'] ?? '' ) : (string) $result;
 		return sprintf(
 			'%s · %s text',
 			$this->truncate_activity_text( (string) ( $input['url'] ?? '' ), 120 ),
-			$this->format_activity_bytes( strlen( $result ) )
+			$this->format_activity_bytes( strlen( $content ) )
 		);
 	}
 
-	private function summarize_list_plugins_activity( string $result ): string {
-		$data = json_decode( $result, true );
+	private function summarize_list_plugins_activity( mixed $result ): string {
+		$data = is_array( $result ) ? ( $result['plugins'] ?? null ) : null;
 		if ( ! is_array( $data ) ) {
 			return 'Completed.';
 		}

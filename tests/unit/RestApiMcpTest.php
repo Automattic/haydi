@@ -183,6 +183,47 @@ class RestApiMcpTest extends TestCase {
 		$this->assertTrue( $data['result']['isError'] );
 	}
 
+	public function test_tools_call_serializes_a_structured_result_once_at_the_mcp_adapter(): void {
+		$catalog = new Haydi_Tool_Catalog();
+		$catalog->register(
+			array(
+				'name'         => 'inspect_state',
+				'description'  => 'Return structured state.',
+				'input_schema' => array(
+					'type'       => 'object',
+					'properties' => array(),
+					'required'   => array(),
+				),
+				'effect'       => 'automatic',
+				'projections'  => array(
+					'chat' => false,
+					'mcp'  => true,
+				),
+			),
+			static fn(): array => array(
+				'items' => array(
+					array( 'id' => 7 ),
+				),
+			)
+		);
+		$this->injectProperty( 'tool_catalog', $catalog );
+
+		$resp = $this->callMcp(
+			array(
+				'jsonrpc' => '2.0',
+				'method'  => 'tools/call',
+				'id'      => 2,
+				'params'  => array( 'name' => 'inspect_state', 'arguments' => array() ),
+			)
+		);
+		$data = $resp->get_data();
+
+		$this->assertSame(
+			array( 'items' => array( array( 'id' => 7 ) ) ),
+			json_decode( $data['result']['content'][0]['text'], true )
+		);
+	}
+
 	// -------------------------------------------------------------------------
 	// check_permission()
 	// -------------------------------------------------------------------------

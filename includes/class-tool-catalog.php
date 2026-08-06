@@ -68,7 +68,7 @@ final class Haydi_Tool_Catalog {
 	 * Register one canonical Tool Declaration and its Tool Implementation.
 	 *
 	 * @param array    $definition     Canonical declaration plus surface projections.
-	 * @param callable $implementation fn( array $canonical_arguments ): mixed.
+	 * @param callable $implementation fn( array $canonical_arguments ): JSON-compatible mixed|WP_Error.
 	 * @throws LogicException If registration happens after the catalog is frozen.
 	 * @throws InvalidArgumentException If the Tool Declaration is invalid or duplicates a public name.
 	 */
@@ -190,8 +190,10 @@ final class Haydi_Tool_Catalog {
 				if ( null !== $before ) {
 					$before( $activity );
 				}
-				return $this->legacy_chat_result_outcome(
+				return $this->result_outcome(
 					$canonical ?? $external_name,
+					null,
+					self::CHAT,
 					$filtered,
 					$activity
 				);
@@ -241,7 +243,7 @@ final class Haydi_Tool_Catalog {
 	 *
 	 * @param string $external_name Public chat Tool name from the Action Proposal.
 	 * @param array  $arguments     Action Proposal arguments.
-	 * @return array|WP_Error Tool Execution outcome, including raw `data`.
+	 * @return array|WP_Error Tool Execution outcome with a JSON-compatible `result`.
 	 */
 	public function execute_approved( string $external_name, array $arguments ): array|WP_Error {
 		$canonical  = $this->aliases[ self::CHAT ][ $external_name ] ?? null;
@@ -643,8 +645,6 @@ final class Haydi_Tool_Catalog {
 		if ( is_wp_error( $result ) ) {
 			return $result;
 		}
-		$raw_result = $result;
-
 		if ( null !== $definition && isset( $definition['presenters'][ $surface ] ) ) {
 			$result = ( $definition['presenters'][ $surface ] )( $result );
 			if ( is_wp_error( $result ) ) {
@@ -652,14 +652,10 @@ final class Haydi_Tool_Catalog {
 			}
 		}
 
-		if ( is_string( $result ) ) {
-			$content = $result;
-		} else {
-			$options = self::MCP === $surface ? JSON_PRETTY_PRINT : 0;
-			$content = wp_json_encode( $result, $options );
-			if ( ! is_string( $content ) ) {
-				return new WP_Error( 'tool_result_encoding_failed', "Could not encode tool result: {$canonical}" );
-			}
+		// Tool Executions stay structured until a transport Adapter requires text.
+		// Encoding here is validation only; the native value remains authoritative.
+		if ( ! is_string( wp_json_encode( $result ) ) ) {
+			return new WP_Error( 'tool_result_encoding_failed', "Could not encode tool result: {$canonical}" );
 		}
 
 		if ( null === $activity ) {
@@ -675,30 +671,7 @@ final class Haydi_Tool_Catalog {
 		return array(
 			'kind'     => 'result',
 			'name'     => $canonical,
-			'content'  => $content,
-			'data'     => $raw_result,
-			'activity' => $activity,
-		);
-	}
-
-	private function legacy_chat_result_outcome(
-		string $canonical,
-		mixed $result,
-		array $activity
-	): array|WP_Error {
-		if ( is_wp_error( $result ) ) {
-			return $result;
-		}
-
-		$content = is_string( $result ) ? $result : wp_json_encode( $result );
-		if ( ! is_string( $content ) ) {
-			return new WP_Error( 'tool_result_encoding_failed', 'Tool result could not be encoded.' );
-		}
-
-		return array(
-			'kind'     => 'result',
-			'name'     => $canonical,
-			'content'  => $content,
+			'result'   => $result,
 			'activity' => $activity,
 		);
 	}

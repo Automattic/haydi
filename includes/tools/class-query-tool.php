@@ -46,9 +46,6 @@ function haydi_register_query_tool(
 					'required'    => array( 'sql' ),
 				),
 			),
-			'presenters'     => array(
-				'mcp' => static fn( array $result ) => 'select' === $result['type'] ? $result['rows'] : $result['result'],
-			),
 		),
 		static fn( array $arguments ): array|WP_Error => haydi_query_execute(
 			trim( (string) ( $arguments['sql'] ?? '' ) ),
@@ -84,7 +81,6 @@ function haydi_register_query_tool(
 							$status = is_array( $data ) && isset( $data['status'] ) ? (int) $data['status'] : 400;
 							return new WP_REST_Response( array( 'message' => $result->get_error_message() ), $status );
 						}
-						unset( $result['result'] );
 						return new WP_REST_Response( $result );
 					},
 					'permission_callback' => 'haydi_is_authorized_api_request',
@@ -123,7 +119,6 @@ function haydi_query_execute( string $sql, string $reason, Haydi_Audit_Logger $l
 			'rows'      => $rows,
 			'count'     => count( $rows ),
 			'truncated' => $truncated,
-			'result'    => wp_json_encode( $rows ),
 		);
 	}
 
@@ -142,8 +137,7 @@ function haydi_query_execute( string $sql, string $reason, Haydi_Audit_Logger $l
 
 	$logger->log( 'query_executed', '', $reason );
 	return array(
-		'type'   => 'write',
-		'rows'   => $result,
-		'result' => is_int( $result ) ? "Query OK, {$result} row(s) affected." : 'Query executed successfully.',
+		'type' => 'write',
+		'rows' => $result,
 	);
 }

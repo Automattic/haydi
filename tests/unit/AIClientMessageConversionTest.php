@@ -164,6 +164,40 @@ class AIClientMessageConversionTest extends TestCase {
 		$this->assertSame( 'run_php', $function_response->getName() );
 	}
 
+	public function test_function_response_preserves_structured_tool_result_for_non_google_providers(): void {
+		$result = array(
+			'rows'  => array(
+				array(
+					'post_title' => 'Hello world!',
+					'post_status' => 'publish',
+				),
+			),
+			'count' => 1,
+		);
+
+		$wp_messages = $this->convert_to_wp_messages(
+			array(
+				array(
+					'role'    => 'user',
+					'content' => array(
+						array(
+							'type'        => 'tool_result',
+							'tool_use_id' => 'call_1',
+							'name'        => 'run_query',
+							'content'     => $result,
+						),
+					),
+				),
+			),
+			array( 'anthropic', 'claude-sonnet-4.5' )
+		);
+
+		$parts             = $wp_messages[0]->getParts();
+		$function_response = $parts[0]->getFunctionResponse();
+
+		$this->assertSame( $result, $function_response->getResponse() );
+	}
+
 	public function test_function_call_preserves_thought_signature_when_using_function_protocol(): void {
 		$wp_messages = $this->convert_to_wp_messages(
 			array(
@@ -191,6 +225,11 @@ class AIClientMessageConversionTest extends TestCase {
 	}
 
 	public function test_google_converts_tool_protocol_history_to_text_transcript(): void {
+		$result = array(
+			'rows'  => array( array( 'post_title' => 'Hello world!' ) ),
+			'count' => 1,
+		);
+
 		$wp_messages = $this->convert_to_wp_messages(
 			array(
 				array(
@@ -218,7 +257,7 @@ class AIClientMessageConversionTest extends TestCase {
 							'type'        => 'tool_result',
 							'tool_use_id' => 'call_1',
 							'name'        => 'run_query',
-							'content'     => '[{"post_title":"Hello world!"}]',
+							'content'     => $result,
 						),
 					),
 				),
@@ -239,6 +278,8 @@ class AIClientMessageConversionTest extends TestCase {
 		$this->assertNull( $tool_result_parts[0]->getFunctionResponse() );
 		$this->assertStringContainsString( 'Tool result (call_1): run_query', $tool_result_parts[0]->getText() );
 		$this->assertStringContainsString( 'Hello world!', $tool_result_parts[0]->getText() );
+		$this->assertStringContainsString( '"count":1', $tool_result_parts[0]->getText() );
+		$this->assertStringNotContainsString( '\\"post_title\\"', $tool_result_parts[0]->getText() );
 	}
 
 	/**

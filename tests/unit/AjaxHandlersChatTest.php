@@ -385,6 +385,34 @@ class AjaxHandlersChatTest extends TestCase {
 	// Per-message timestamp persistence
 	// -------------------------------------------------------------------------
 
+	public function test_save_round_trips_structured_tool_results(): void {
+		$messages = array(
+			array(
+				'role'    => 'user',
+				'content' => array(
+					array(
+						'type'        => 'tool_result',
+						'tool_use_id' => 'call_1',
+						'name'        => 'list_plugins',
+						'content'     => array(
+							'plugins' => array(
+								array(
+									'file'   => 'hello-dolly/hello.php',
+									'active' => true,
+								),
+							),
+						),
+					),
+				),
+			),
+		);
+
+		$id     = $this->saveChat( $messages );
+		$loaded = $this->loadChat( $id );
+
+		$this->assertSame( $messages, $loaded['messages'] );
+	}
+
 	public function test_save_preserves_display_log_timestamps(): void {
 		$display = array(
 			array( 'role' => 'user',      'text' => 'hello',  't' => 1700000000000 ),

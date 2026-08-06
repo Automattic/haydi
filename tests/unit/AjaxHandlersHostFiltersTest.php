@@ -81,7 +81,7 @@ class AjaxHandlersHostFiltersTest extends TestCase {
 		$this->assertSame( 'https://wordpress.com/setup/hosted-site-migration', $result );
 	}
 
-	public function test_read_tool_execution_encodes_filtered_array_result(): void {
+	public function test_read_tool_execution_preserves_filtered_array_result(): void {
 		Functions\when( 'apply_filters' )->alias(
 			static function ( $hook, $value, ...$args ) {
 				if ( 'haydi_execute_read_tool' === $hook && 'wccom_get_migration_url' === $args[0] ) {
@@ -95,7 +95,7 @@ class AjaxHandlersHostFiltersTest extends TestCase {
 		$result = $this->dispatch_chat_tool( 'wccom_get_migration_url', array() );
 
 		$this->assertSame(
-			'{"url":"https:\/\/wordpress.com\/setup\/hosted-site-migration"}',
+			array( 'url' => 'https://wordpress.com/setup/hosted-site-migration' ),
 			$result
 		);
 	}
@@ -129,12 +129,12 @@ class AjaxHandlersHostFiltersTest extends TestCase {
 		return $method->invoke( $handler );
 	}
 
-	private function dispatch_chat_tool( string $name, array $input ): string {
+	private function dispatch_chat_tool( string $name, array $input ): mixed {
 		$catalog = new Haydi_Tool_Catalog();
 		$outcome = $catalog->dispatch( Haydi_Tool_Catalog::CHAT, $name, $input );
 
 		return is_wp_error( $outcome )
 			? 'Error: ' . $outcome->get_error_message()
-			: $outcome['content'];
+			: $outcome['result'];
 	}
 }

@@ -50,17 +50,17 @@ final class Haydi_Content_Tool {
 					),
 				),
 				'presenters'     => array(
-					// Preserve the current chat result shape during this architecture-only move.
-					'chat' => static function ( array $rows ): array {
-						foreach ( $rows as &$row ) {
+					// Keep full post bodies available to MCP without flooding chat context.
+					'chat' => static function ( array $result ): array {
+						foreach ( $result['posts'] as &$row ) {
 							unset( $row['content'] );
 						}
 						unset( $row );
-						return $rows;
+						return $result;
 					},
 				),
 			),
-			fn( array $arguments ): array => $this->list_posts( $arguments )
+			fn( array $arguments ): array => array( 'posts' => $this->list_posts( $arguments ) )
 		);
 
 		$catalog->register(
@@ -94,7 +94,7 @@ final class Haydi_Content_Tool {
 					),
 				),
 			),
-			fn( array $arguments ): array => $this->list_users( $arguments )
+			fn( array $arguments ): array => array( 'users' => $this->list_users( $arguments ) )
 		);
 
 		$catalog->register(
@@ -121,7 +121,7 @@ final class Haydi_Content_Tool {
 					),
 				),
 			),
-			fn( array $arguments ): array => $this->list_options( $arguments )
+			fn( array $arguments ): array => array( 'options' => $this->list_options( $arguments ) )
 		);
 	}
 

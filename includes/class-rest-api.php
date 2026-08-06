@@ -258,8 +258,7 @@ class Haydi_Rest_Api {
 	 * Return all installed plugins with name, version, file, and active status.
 	 */
 	public function handle_list_plugins(): WP_REST_Response {
-		$plugins = json_decode( $this->plugin_tool->list_plugins_for_ai(), true );
-		return new WP_REST_Response( array( 'plugins' => $plugins ) );
+		return new WP_REST_Response( $this->plugin_tool->list_plugins_for_ai() );
 	}
 
 	public function handle_install_plugin( WP_REST_Request $request ): WP_REST_Response {
@@ -323,11 +322,11 @@ class Haydi_Rest_Api {
 		}
 
 		$result = $this->url_tool->fetch_for_ai( $url );
-		if ( str_starts_with( $result, 'Error: ' ) ) {
-			return new WP_REST_Response( array( 'message' => substr( $result, 7 ) ), 400 );
+		if ( is_wp_error( $result ) ) {
+			return new WP_REST_Response( array( 'message' => $result->get_error_message() ), 400 );
 		}
 
-		return new WP_REST_Response( array( 'content' => $result ) );
+		return new WP_REST_Response( array( 'content' => $result['content'] ) );
 	}
 
 	// -------------------------------------------------------------------------
@@ -400,9 +399,16 @@ class Haydi_Rest_Api {
 				$args    = (array) ( $params['arguments'] ?? array() );
 				$outcome = $this->tool_catalog()->dispatch( Haydi_Tool_Catalog::MCP, $name, $args );
 				$is_err  = is_wp_error( $outcome );
-				$text    = $is_err
-					? 'Error: ' . $outcome->get_error_message()
-					: $outcome['content'];
+				if ( $is_err ) {
+					$text = 'Error: ' . $outcome->get_error_message();
+				} else {
+					$result = $outcome['result'];
+					$text   = is_string( $result ) ? $result : wp_json_encode( $result, JSON_PRETTY_PRINT );
+					if ( ! is_string( $text ) ) {
+						$text   = 'Error: Tool result could not be serialized.';
+						$is_err = true;
+					}
+				}
 				return $this->mcp_ok(
 					$id,
 					array_filter(

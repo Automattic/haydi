@@ -2515,11 +2515,10 @@
         var applyAfterPreflight = function () {
             trackApply(post(request.action, request.data, function (res) {
                 if (res.success) {
-                    var wrappedResult = res.data && Object.prototype.hasOwnProperty.call(res.data, 'tool_result');
-                    var rawResult     = wrappedResult ? res.data.result : res.data;
-                    var toolResult    = wrappedResult
-                        ? String(res.data.tool_result)
-                        : legacyApprovalToolResult(p, rawResult);
+                    var rawResult = p.usesLegacyAdapter ? res.data : res.data.result;
+                    var toolResult = p.usesLegacyAdapter
+                        ? legacyApprovalToolResult(p, rawResult)
+                        : rawResult;
                     var uiMessage = presentation.successUi
                         ? presentation.successUi(p, rawResult)
                         : defaultApprovalSuccessUi(p, rawResult);

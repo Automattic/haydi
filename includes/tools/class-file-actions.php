@@ -54,9 +54,6 @@ function haydi_register_file_action_tools(
 					'available'   => $mcp_available,
 				),
 			),
-			'presenters'     => array(
-				'mcp' => static fn( array $result ): string => "File written successfully: {$result['path']}",
-			),
 		),
 		static fn( array $arguments ): array|WP_Error => haydi_file_execute_write(
 			(string) ( $arguments['path'] ?? '' ),
@@ -120,9 +117,6 @@ function haydi_register_file_action_tools(
 					'available'     => $mcp_available,
 				),
 			),
-			'presenters'     => array(
-				'mcp' => static fn( array $result ): string => "File edited successfully ({$result['matches']} match(es)): {$result['path']}",
-			),
 		),
 		static fn( array $arguments ): array|WP_Error => haydi_file_execute_edit(
 			(string) ( $arguments['filePath'] ?? '' ),
@@ -170,9 +164,6 @@ function haydi_register_file_action_tools(
 					'available'   => $mcp_available,
 				),
 			),
-			'presenters'     => array(
-				'mcp' => static fn( array $result ): string => "File deleted successfully: {$result['path']}",
-			),
 		),
 		static fn( array $arguments ): array|WP_Error => haydi_file_execute_delete(
 			(string) ( $arguments['path'] ?? '' ),
@@ -188,14 +179,12 @@ function haydi_register_file_action_tools(
 			'label'       => 'Move File',
 			'description' => 'Move or rename a file within the allowed roots. Calling this tool opens an approval UI for the user; they confirm before the move. A backup of the source is created automatically. You must invoke this tool to trigger the approval — describing the move in plain text does nothing.',
 			'mcp_desc'    => 'Move or rename a file.',
-			'mcp_result'  => 'File moved',
 			'log_action'  => 'move_proposed',
 		),
 		'copy_file' => array(
 			'label'       => 'Copy File',
 			'description' => 'Copy a file within the allowed roots. Calling this tool opens an approval UI for the user; they confirm before the copy. The destination is backed up if it already exists. You must invoke this tool to trigger the approval — describing the copy in plain text does nothing.',
 			'mcp_desc'    => 'Copy a file.',
-			'mcp_result'  => 'File copied',
 			'log_action'  => 'copy_proposed',
 		),
 	) as $name => $config ) {
@@ -236,9 +225,6 @@ function haydi_register_file_action_tools(
 						'required'    => array( 'src', 'dest' ),
 						'available'   => $mcp_available,
 					),
-				),
-				'presenters'     => array(
-					'mcp' => static fn( array $result ): string => "{$config['mcp_result']}: {$result['src']} → {$result['dest']}",
 				),
 			),
 			static function ( array $arguments ) use ( $name, $guard, $health, $logger ): array|WP_Error {
@@ -289,9 +275,6 @@ function haydi_register_file_action_tools(
 					'available'   => $mcp_available,
 				),
 			),
-			'presenters'     => array(
-				'mcp' => static fn( array $result ): string => "Directory deleted: {$result['path']}",
-			),
 		),
 		static fn( array $arguments ): array|WP_Error => haydi_file_execute_delete_dir(
 			(string) ( $arguments['path'] ?? '' ),
@@ -339,9 +322,6 @@ function haydi_register_file_action_tools(
 					'required'    => array( 'backup_file', 'original_path' ),
 					'available'   => $mcp_available,
 				),
-			),
-			'presenters'     => array(
-				'mcp' => static fn( array $result ): string => "Backup restored: {$result['backup_file']} → {$result['original_path']}",
 			),
 		),
 		static fn( array $arguments ): array|WP_Error => haydi_file_execute_restore_backup(

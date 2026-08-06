@@ -49,21 +49,24 @@ class Haydi_Fetch_Url_Tool {
 					),
 				),
 			),
-			fn( array $arguments ): string => $this->fetch_for_ai( (string) ( $arguments['url'] ?? '' ) )
+			fn( array $arguments ): array|WP_Error => $this->fetch_for_ai( (string) ( $arguments['url'] ?? '' ) )
 		);
 	}
 
 	/**
 	 * AI-facing wrapper used by Tool Catalog dispatch.
-	 * Returns the response body on success, or a leading "Error: " string on failure.
+	 * Returns the requested URL and response body on success.
 	 */
-	public function fetch_for_ai( string $url ): string {
+	public function fetch_for_ai( string $url ): array|WP_Error {
 		$result = $this->fetch( $url );
 		if ( is_wp_error( $result ) ) {
-			return 'Error: ' . $result->get_error_message();
+			return $result;
 		}
 		$this->logger->log( 'fetch_url', $url );
-		return $result;
+		return array(
+			'url'     => $url,
+			'content' => $result,
+		);
 	}
 
 	/**

@@ -87,13 +87,12 @@ test.describe('Haydi_Ajax_Handlers', () => {
         });
     }
 
-    /** Assert and return the raw Tool Implementation result from the standard envelope. */
+    /** Assert and return the structured Tool Implementation result from the standard envelope. */
     function expectApprovalEnvelope(res, toolName) {
         expect(res.success).toBe(true);
         expect(res.data.tool_name).toBe(toolName);
         expect(res.data).toHaveProperty('result');
-        expect(typeof res.data.tool_result).toBe('string');
-        expect(res.data.tool_result.length).toBeGreaterThan(0);
+        expect(res.data).not.toHaveProperty('tool_result');
         return res.data.result;
     }
 
@@ -837,7 +836,7 @@ test.describe('Haydi_Ajax_Handlers', () => {
             expect(names).not.toContain('haydi_list_extensions');
         });
 
-        test('MCP tools/call haydi_list_plugins — returns text content with plugins array', async () => {
+        test('MCP tools/call haydi_list_plugins — serializes the structured plugins result once', async () => {
             const res = await mcp({
                 jsonrpc: '2.0',
                 method:  'tools/call',
@@ -846,7 +845,7 @@ test.describe('Haydi_Ajax_Handlers', () => {
             }, apiToken);
             expect(res.result.content[0].type).toBe('text');
             const parsed = JSON.parse(res.result.content[0].text);
-            expect(Array.isArray(parsed)).toBe(true);
+            expect(Array.isArray(parsed.plugins)).toBe(true);
         });
 
         test('MCP tools/call unknown tool — isError is true', async () => {

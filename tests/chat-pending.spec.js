@@ -400,8 +400,11 @@ test.describe('Chat — pending proposal handling', () => {
                             result: {
                                 slug:        'contact-form-7',
                                 plugin_file: 'contact-form-7/wp-contact-form-7.php',
+                                installation: {
+                                    status:       'installed',
+                                    capabilities: ['forms', 'mail'],
+                                },
                             },
-                            tool_result: 'SERVER_TOOL_RESULT',
                         },
                     }),
                 });
@@ -427,7 +430,14 @@ test.describe('Chat — pending proposal handling', () => {
         const last = secondMsgs[secondMsgs.length - 1];
         const result = last.content.find((block) => block.type === 'tool_result' && block.tool_use_id === TOOL_USE_ID);
         expect(result.name).toBe('install_plugin');
-        expect(result.content).toBe('SERVER_TOOL_RESULT');
+        expect(result.content).toEqual({
+            slug:        'contact-form-7',
+            plugin_file: 'contact-form-7/wp-contact-form-7.php',
+            installation: {
+                status:       'installed',
+                capabilities: ['forms', 'mail'],
+            },
+        });
 
         await ctx.close();
     });
@@ -596,6 +606,7 @@ test.describe('Chat — pending proposal handling', () => {
         const results = last.content.filter((block) => block.type === 'tool_result');
         expect(results.map((block) => block.tool_use_id)).toEqual(['read_before_approval', TOOL_USE_ID]);
         expect(results[1].name).toBe('legacy_clear_cache');
+        expect(typeof results[1].content).toBe('string');
         expect(results[1].content).toContain('Cache cleared.');
 
         await ctx.close();
@@ -657,9 +668,13 @@ test.describe('Chat — pending proposal handling', () => {
                     body:        JSON.stringify({
                         success: true,
                         data:    {
-                            tool_name:   'run_query',
-                            result:      { type: 'select', rows: [], count: 0, truncated: false, result: '[]' },
-                            tool_result: '[]',
+                            tool_name: 'run_query',
+                            result: {
+                                type:      'select',
+                                rows:      [{ n: '1' }],
+                                count:     1,
+                                truncated: false,
+                            },
                         },
                     }),
                 });
