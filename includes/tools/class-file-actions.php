@@ -345,7 +345,7 @@ function haydi_register_file_action_tools(
 	$health = new Haydi_Health_Check();
 
 	$verify = static function () {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! haydi_current_user_can_access() ) {
 			wp_send_json_error( array( 'message' => 'Permission denied.' ), 403 );
 		}
 		if ( ! check_ajax_referer( 'haydi_nonce', 'nonce', false ) ) {

@@ -10,7 +10,7 @@
 
 defined( 'ABSPATH' ) || exit;
 // phpcs:disable WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- template included inside Haydi_Plugin::render_main_page(); variables are method-scoped, never global.
-if ( ! current_user_can( 'manage_options' ) ) {
+if ( ! haydi_current_user_can_access() ) {
 	wp_die( esc_html__( 'You do not have permission to view this page.', 'haydi' ) );
 }
 

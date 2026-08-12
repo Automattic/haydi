@@ -171,6 +171,12 @@ function defaultModelChoice(haydiConfig) {
     return findModelChoice(haydiConfig, groups[0].id, groups[0].models[0].id);
 }
 
+function restrictedModelChoice(haydiConfig) {
+    var policy = haydiConfig.modelPolicy || {};
+    if (!policy.restricted) { return null; }
+    return findModelChoice(haydiConfig, String(policy.provider || ''), String(policy.model || ''));
+}
+
 // ---------------------------------------------------------------------------
 // esc() — XSS-critical HTML escaping
 // ---------------------------------------------------------------------------
@@ -325,3 +331,42 @@ test('defaultModelChoice: returns null only when there are no configured models'
     expect(defaultModelChoice({ modelChoices: {}, modelLimits: {} })).toBeNull();
 });
 
+test('restrictedModelChoice: returns the administrator-selected model for an Editor', () => {
+    const config = {
+        modelChoices: {
+            anthropic: {
+                id:     'anthropic',
+                name:   'Anthropic',
+                models: [
+                    { id: 'claude-opus-5', name: 'Claude Opus 5' },
+                    { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6' },
+                ],
+            },
+        },
+        modelLimits: {},
+        modelPolicy: {
+            restricted: true,
+            provider:   'anthropic',
+            model:      'claude-sonnet-4-6',
+        },
+    };
+
+    expect(restrictedModelChoice(config)).toEqual({
+        provider:      'anthropic',
+        providerLabel: 'Anthropic',
+        model:         'claude-sonnet-4-6',
+        label:         'Claude Sonnet 4.6',
+    });
+});
+
+test('restrictedModelChoice: returns null when the locked model is unavailable', () => {
+    expect(restrictedModelChoice({
+        modelChoices: {},
+        modelLimits:  {},
+        modelPolicy:  {
+            restricted: true,
+            provider:   'anthropic',
+            model:      'claude-sonnet-4-6',
+        },
+    })).toBeNull();
+});

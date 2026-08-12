@@ -25,6 +25,8 @@ require_once HAYDI_DIR . 'includes/class-health-check.php';
 require_once HAYDI_DIR . 'includes/class-audit-logger.php';
 require_once HAYDI_DIR . 'includes/class-jetpack-context.php';
 require_once HAYDI_DIR . 'includes/class-model-limits.php';
+require_once HAYDI_DIR . 'includes/class-model-policy.php';
+require_once HAYDI_DIR . 'includes/class-settings-page.php';
 require_once HAYDI_DIR . 'includes/class-tool-catalog.php';
 require_once HAYDI_DIR . 'includes/class-ai-client.php';
 require_once HAYDI_DIR . 'includes/class-provider-continuation-store.php';
@@ -143,7 +145,7 @@ final class Haydi_Plugin {
 	}
 
 	public function maybe_show_provider_notice(): void {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! haydi_current_user_can_access() ) {
 			return;
 		}
 		$screen = get_current_screen();
@@ -163,7 +165,7 @@ final class Haydi_Plugin {
 			'tools.php',
 			'Haydi',
 			'Haydi',
-			'manage_options',
+			haydi_get_access_capability(),
 			'haydi',
 			array( $this, 'render_main_page' )
 		);
@@ -171,14 +173,14 @@ final class Haydi_Plugin {
 			null,
 			'Haydi Audit Log',
 			'Haydi Audit Log',
-			'manage_options',
+			haydi_get_access_capability(),
 			'haydi-audit-log',
 			array( $this, 'render_audit_log_page' )
 		);
 	}
 
 	public function enqueue_commands(): void {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! haydi_current_user_can_access() ) {
 			return;
 		}
 
@@ -215,7 +217,9 @@ final class Haydi_Plugin {
 	}
 
 	public function enqueue_assets( string $hook ): void {
-		if ( strpos( $hook, 'haydi' ) === false ) {
+		$is_chat_page  = 'tools_page_haydi' === $hook;
+		$is_audit_page = false !== strpos( $hook, 'haydi-audit-log' );
+		if ( ! $is_chat_page && ! $is_audit_page ) {
 			return;
 		}
 
@@ -245,10 +249,10 @@ final class Haydi_Plugin {
 		$current_user  = wp_get_current_user();
 		$wpcom_blog_id = ( new Haydi_Jetpack_Context() )->get_wpcom_blog_id();
 		$wpcom_user_id = Haydi_Jetpack_Context::get_wpcom_user_id( $current_user->ID );
-		$is_chat_page  = false === strpos( $hook, 'audit-log' );
 		$model_service = $is_chat_page ? new Haydi_Model_Limits() : null;
 		$model_limits  = $model_service ? $model_service->get_limits_for_configured_providers() : array();
 		$model_choices = $model_service ? $model_service->get_model_choices_for_configured_providers() : array();
+		$model_policy  = Haydi_Model_Policy::picker_config( $model_choices );
 
 		wp_localize_script(
 			'haydi-admin',
@@ -264,6 +268,7 @@ final class Haydi_Plugin {
 				'wpcomUserId'                => $wpcom_user_id,
 				'modelLimits'                => $model_limits,
 				'modelChoices'               => $model_choices,
+				'modelPolicy'                => $model_policy,
 				'suggestions'                => self::get_suggestion_pool(),
 				'suggestionHint'             => apply_filters( 'haydi_suggestion_hint', __( 'Try one of these, or ask me what tools I have:', 'haydi' ) ),
 				'showToolActivity'           => (bool) HAYDI_SHOW_TOOL_ACTIVITY,
@@ -290,20 +295,21 @@ final class Haydi_Plugin {
 	}
 
 	public function render_main_page(): void {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! haydi_current_user_can_access() ) {
 			wp_die( esc_html__( 'You do not have permission to access this page.', 'haydi' ) );
 		}
 		include HAYDI_DIR . 'admin/main-page.php';
 	}
 
 	public function render_audit_log_page(): void {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! haydi_current_user_can_access() ) {
 			wp_die( esc_html__( 'You do not have permission to access this page.', 'haydi' ) );
 		}
 		include HAYDI_DIR . 'admin/audit-log-page.php';
 	}
 }
 
+new Haydi_Settings_Page();
 new Haydi_Plugin();
 // AJAX handlers self-register via their constructor.
 new Haydi_Ajax_Handlers();

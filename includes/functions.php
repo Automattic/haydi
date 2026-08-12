@@ -12,6 +12,31 @@ defined( 'ABSPATH' ) || exit;
 $GLOBALS['haydi_action_proposals'] = array();
 
 /**
+ * Return the WordPress capability required to use Haydi.
+ *
+ * Editors and Administrators have edit_others_posts by default. Sites may
+ * replace it with a stricter custom capability when they need a different
+ * access policy.
+ *
+ * @return string
+ */
+function haydi_get_access_capability(): string {
+	$default    = 'edit_others_posts';
+	$capability = apply_filters( 'haydi_access_capability', $default );
+
+	return is_string( $capability ) && '' !== trim( $capability )
+		? $capability
+		: $default;
+}
+
+/**
+ * Check whether the current WordPress user may use Haydi.
+ */
+function haydi_current_user_can_access(): bool {
+	return current_user_can( haydi_get_access_capability() );
+}
+
+/**
  * Register an approval-gated action tool.
  *
  * @param string $tool_name AI tool name (e.g. 'write_file').
@@ -77,7 +102,8 @@ function haydi_get_action_proposals(): array {
 }
 
 /**
- * Check whether the current REST request is authorized via Bearer token or manage_options.
+ * Check whether the current REST request is authorized via Bearer token or
+ * the configured Haydi access capability.
  *
  * @param WP_REST_Request $request Incoming REST request.
  * @return bool
@@ -104,5 +130,5 @@ function haydi_is_authorized_api_request( WP_REST_Request $request ): bool {
 			return true;
 		}
 	}
-	return current_user_can( 'manage_options' );
+	return haydi_current_user_can_access();
 }

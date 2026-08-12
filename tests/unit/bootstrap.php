@@ -117,6 +117,8 @@ require_once $plugin_root . '/includes/class-health-check.php';
 require_once $plugin_root . '/includes/class-audit-logger.php';
 require_once $plugin_root . '/includes/class-jetpack-context.php';
 require_once $plugin_root . '/includes/class-model-limits.php';
+require_once $plugin_root . '/includes/class-model-policy.php';
+require_once $plugin_root . '/includes/class-settings-page.php';
 require_once $plugin_root . '/includes/class-tool-catalog.php';
 require_once $plugin_root . '/includes/class-ai-client.php';
 require_once $plugin_root . '/includes/class-provider-continuation-store.php';

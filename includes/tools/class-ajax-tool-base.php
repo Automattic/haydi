@@ -28,11 +28,11 @@ abstract class Haydi_Ajax_Tool_Base {
 	// -------------------------------------------------------------------------
 
 	/**
-	 * Verify the current user has manage_options capability and a valid nonce.
+	 * Verify the current user may access Haydi and supplied a valid nonce.
 	 * Halts execution via wp_send_json_error → wp_die when either check fails.
 	 */
 	protected function verify(): void {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! haydi_current_user_can_access() ) {
 			wp_send_json_error( array( 'message' => 'Permission denied.' ), 403 );
 		}
 		if ( ! check_ajax_referer( 'haydi_nonce', 'nonce', false ) ) {

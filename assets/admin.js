@@ -1303,7 +1303,24 @@
         return findModelChoice(groups[0].id, groups[0].models[0].id);
     }
 
+    function isModelPickerRestricted() {
+        return !!(haydi.modelPolicy && haydi.modelPolicy.restricted);
+    }
+
+    function restrictedModelChoice() {
+        if (!isModelPickerRestricted()) { return null; }
+        return findModelChoice(
+            String(haydi.modelPolicy.provider || ''),
+            String(haydi.modelPolicy.model || '')
+        );
+    }
+
+    function isRestrictedModelUnavailable() {
+        return isModelPickerRestricted() && !restrictedModelChoice();
+    }
+
     function saveSelectedModelPreference() {
+        if (isModelPickerRestricted()) { return; }
         try {
             if (selectedModelPreference) {
                 window.localStorage.setItem(
@@ -1322,6 +1339,11 @@
     }
 
     function restoreSelectedModelPreference() {
+        if (isModelPickerRestricted()) {
+            selectedModelPreference = restrictedModelChoice();
+            return;
+        }
+
         try {
             var raw = window.localStorage.getItem(MODEL_PREFERENCE_STORAGE_KEY);
             if (raw) {
@@ -1349,6 +1371,27 @@
         restoreSelectedModelPreference();
 
         var groups = getModelChoiceGroups();
+        var $button = $('#wpc-btn-model-menu');
+
+        if (isModelPickerRestricted()) {
+            var policy = haydi.modelPolicy || {};
+            var label = selectedModelPreference
+                ? selectedModelPreference.label
+                : String(policy.label || policy.model || 'Unavailable model');
+            $('#wpc-model-menu').empty().addClass('wpc-hidden');
+            $('#wpc-current-model-label').text(label);
+            $button
+                .prop('disabled', true)
+                .attr('aria-expanded', 'false')
+                .attr(
+                    'title',
+                    selectedModelPreference
+                        ? 'Model selected by an administrator.'
+                        : 'The model selected by an administrator is not currently available.'
+                );
+            return;
+        }
+
         var selectedKey = selectedModelPreference
             ? selectedModelPreference.provider + '::' + selectedModelPreference.model
             : '';
@@ -1378,7 +1421,7 @@
 
         $('#wpc-model-menu').html(html);
         $('#wpc-current-model-label').text(selectedModelPreference ? selectedModelPreference.label : 'No models');
-        $('#wpc-btn-model-menu').prop('disabled', !groups.length);
+        $button.prop('disabled', !groups.length);
     }
 
     function closeModelMenu() {
@@ -1387,6 +1430,7 @@
     }
 
     function toggleModelMenu() {
+        if (isModelPickerRestricted()) { return; }
         var isHidden = $('#wpc-model-menu').hasClass('wpc-hidden');
         $('#wpc-model-menu').toggleClass('wpc-hidden', !isHidden);
         $('#wpc-btn-model-menu').attr('aria-expanded', isHidden ? 'true' : 'false');
@@ -1511,6 +1555,7 @@
     });
 
     $('#wpc-model-menu').on('click', '.wpc-model-menu__item', function () {
+        if (isModelPickerRestricted()) { return; }
         if (state.pending) {
             appendMessage('error', 'Resolve or cancel the pending proposal before changing models.');
             closeModelMenu();
@@ -1589,6 +1634,11 @@
 
     function compactChat(opts, done) {
         opts = opts || {};
+        if (isRestrictedModelUnavailable()) {
+            appendMessage('error', 'The model selected by an administrator is not currently available.');
+            if (done) { done(false); }
+            return;
+        }
         if (state.applyInFlight || state.busy || !state.messages.length) {
             if (done) { done(false); }
             return;
@@ -1731,6 +1781,11 @@
         // An approval AJAX (Apply/Execute/etc.) is mid-flight.  Don't let a
         // new chat send race against its still-pending tool_result push.
         if (state.applyInFlight) { return; }
+
+        if (isRestrictedModelUnavailable()) {
+            appendMessage('error', 'The model selected by an administrator is not currently available.');
+            return;
+        }
 
         if (state.busy) {
             if (state.xhr) {

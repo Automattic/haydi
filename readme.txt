@@ -57,6 +57,16 @@ All operations are recorded in an audit log accessible from within the chat inte
 
 Any provider available through the WordPress Connectors API (WordPress 7.0+). This includes Anthropic Claude, OpenAI, and Gemini, among others. Configure your provider under Settings → Connectors.
 
+= Who can use Haydi? =
+
+By default, Editors and Administrators can use Haydi. Authors, Contributors, and Subscribers cannot. Developers can change the required capability with the `haydi_access_capability` filter; its default is `edit_others_posts`.
+
+Haydi can modify files, run SQL and PHP, and change plugin state. Only grant access to trusted users, even though browser mutations require explicit approval by default.
+
+= Can administrators restrict which model Editors use? =
+
+Yes. Go to Settings → Haydi and select an Editor model. The default allows Editors to choose any configured model; selecting a model fixes and disables their picker while Administrators retain the full picker. This controls the browser interface only and does not enforce a model restriction on REST or MCP requests.
+
 = Does it work without Jetpack? =
 
 Yes. Jetpack is optional. Without it, everything works normally but AI suggestions are generic rather than tailored to your specific site's content and stats. A dismissable banner appears pointing to install/connect Jetpack if it is not active.

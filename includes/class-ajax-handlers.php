@@ -4,7 +4,7 @@
  * approval Adapter, and wires the remaining wp_ajax_* endpoints.
  *
  * Security model:
- *  - Every action verifies current_user_can('manage_options') AND a nonce
+ *  - Every action verifies the configured Haydi access capability AND a nonce
  *    (handled by Haydi_Ajax_Tool_Base::verify).
  *  - All filesystem paths are re-validated by Haydi_Filesystem_Guard.
  *  - Approval-gated tools (file writes, SQL, PHP, …) are NEVER executed

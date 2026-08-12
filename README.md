@@ -32,6 +32,28 @@ If [Jetpack](https://jetpack.com/) is installed and connected, the plugin enrich
 
 You can also launch the assistant from anywhere in WP-Admin via the command palette (Cmd/Ctrl+K → "Interact with AI").
 
+### Access control
+
+By default, users with WordPress's `edit_others_posts` capability can use
+Haydi. On a standard installation that means Editors and Administrators, but
+not Authors, Contributors, or Subscribers.
+
+Haydi's access capability is filterable when a site needs a stricter policy:
+
+```php
+add_filter( 'haydi_access_capability', static fn() => 'manage_options' );
+```
+
+Haydi includes tools that can modify files, run SQL and PHP, and change plugin
+state. Granting access therefore gives a user substantial control over the
+site, even though mutating actions require approval in the browser.
+
+Administrators can also control model choice under **Settings → Haydi**. The
+default lets Editors choose any configured model; selecting a specific model
+fixes and disables the picker for Editors while Administrators retain the full
+picker. This is a browser-interface policy only and does not add model
+authorization to REST or MCP requests.
+
 ### Remote Access (MCP / REST API)
 
 Generate an API token under **Advanced settings** in the Haydi sidebar (Tools → Haydi) to connect local AI tools directly to your site.
@@ -175,7 +197,7 @@ The AI calls `list_backups` to find available backups for that file, presents wh
 
 | Control | Detail |
 |---|---|
-| Auth | `manage_options` + nonce on every request |
+| Auth | Configured Haydi access capability (`edit_others_posts` by default) + nonce on every browser request |
 | Path isolation | `realpath()` + allowlist on every read/write; nothing above ABSPATH |
 | Extension allowlist | `.php .css .js .json .txt .md .html` only |
 | File size cap | 512 KB reads/writes |

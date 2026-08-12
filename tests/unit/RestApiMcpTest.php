@@ -252,8 +252,10 @@ class RestApiMcpTest extends TestCase {
 		$this->assertFalse( $result );
 	}
 
-	public function test_check_permission_with_no_auth_header_uses_current_user_can(): void {
-		Functions\when( 'current_user_can' )->justReturn( true );
+	public function test_check_permission_with_no_auth_header_accepts_an_editor_session(): void {
+		Functions\when( 'current_user_can' )->alias(
+			static fn( string $capability ): bool => 'edit_others_posts' === $capability
+		);
 
 		$req    = new WP_REST_Request();
 		$result = $this->api->check_permission( $req );
