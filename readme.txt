@@ -3,7 +3,7 @@ Contributors: automattic, bor0, raicem
 Tags: ai, automation, assistant, site-management, mcp
 Requires at least: 7.0
 Tested up to: 7.0
-Stable tag: 1.1.0
+Stable tag: 1.2.0
 Requires PHP: 8.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -143,6 +143,12 @@ If you opt in to usage analytics, anonymised event data (actions taken, errors e
 No WordPress-bundled libraries (jQuery, Backbone, lodash, etc.) are duplicated by this plugin.
 
 == Changelog ==
+= 1.2.0 =
+* Released 2026-08-12.
+* Added secure, provider-neutral continuation across tool calls so approval pauses and follow-up turns retain provider-required state without exposing it in browser or saved chat transcripts.
+* Expanded Haydi access to Editors and Administrators by default, with a filter for sites that need a different capability policy.
+* Added administrator controls under Settings → Haydi for fixing the model available to Editors while preserving unrestricted model selection for Administrators.
+
 = 1.1.0 =
 * Released 2026-08-07.
 * Bundled file editing, database query, and PHP execution tools directly in Haydi, replacing separate extension downloads with one complete plugin package.
