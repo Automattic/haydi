@@ -196,9 +196,10 @@ class Haydi_Test_Usage_Client extends Haydi_AI_Client {
 		array $messages,
 		string $system = '',
 		bool $include_tools = true,
-		?array $model_preference = null
+		?array $model_preference = null,
+		?array $exact_model = null
 	): array|WP_Error {
-		unset( $messages, $system );
+		unset( $messages, $system, $exact_model );
 		$this->last_include_tools = $include_tools;
 		$this->last_model_preference = $model_preference;
 		return array_shift( $this->responses );

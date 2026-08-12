@@ -9,9 +9,12 @@
 
 defined( 'ABSPATH' ) || exit;
 
+use WordPress\AiClient\AiClient;
+use WordPress\AiClient\Files\DTO\File;
 use WordPress\AiClient\Messages\DTO\ModelMessage;
 use WordPress\AiClient\Messages\DTO\MessagePart;
 use WordPress\AiClient\Messages\DTO\UserMessage;
+use WordPress\AiClient\Messages\Enums\MessagePartChannelEnum;
 use WordPress\AiClient\Tools\DTO\FunctionCall;
 use WordPress\AiClient\Tools\DTO\FunctionDeclaration;
 use WordPress\AiClient\Tools\DTO\FunctionResponse;
@@ -21,9 +24,10 @@ class Haydi_AI_Client {
 	const DEFAULT_MAX_TOKENS      = 16384;
 	const DEFAULT_REQUEST_TIMEOUT = 300;
 
-	private const CONVERSION_MODE_DEFAULT         = 'default';
-	private const CONVERSION_MODE_OPENAI_SPLIT    = 'openai_split';
-	private const CONVERSION_MODE_TOOL_TRANSCRIPT = 'tool_transcript';
+	private const CONVERSION_MODE_DEFAULT           = 'default';
+	private const CONVERSION_MODE_OPENAI_SPLIT      = 'openai_split';
+	private const CONVERSION_MODE_TOOL_RESULT_SPLIT = 'tool_result_split';
+	private const CONVERSION_MODE_TOOL_TRANSCRIPT   = 'tool_transcript';
 
 	/** @var int|null Max output tokens; loaded lazily so handlers that never call the AI don't hit wp_options. */
 	private ?int $max_tokens = null;
@@ -73,13 +77,15 @@ class Haydi_AI_Client {
 	 * @param  string     $system   Optional system prompt.
 	 * @param  bool       $include_tools Whether function declarations should be available to the model.
 	 * @param  array|null $model_preference Optional [provider_id, model_id] preference.
+	 * @param  array|null $exact_model Optional [provider_id, model_id] source lock for Provider Continuation replay.
 	 * @return array|WP_Error        ['stop_reason' => ..., 'content' => [...], 'usage' => [...], 'model' => ...], or WP_Error.
 	 */
 	public function send_messages(
 		array $messages,
 		string $system = '',
 		bool $include_tools = true,
-		?array $model_preference = null
+		?array $model_preference = null,
+		?array $exact_model = null
 	): array|WP_Error {
 		if ( ! function_exists( 'wp_ai_client_prompt' ) ) {
 			return new WP_Error(
@@ -88,8 +94,9 @@ class Haydi_AI_Client {
 			);
 		}
 
-		$wp_messages = $this->to_wp_messages( $messages, $model_preference );
-		$result      = $this->execute_prompt( $wp_messages, $system, $include_tools, $model_preference );
+		$conversion_model = $exact_model ?? $model_preference;
+		$wp_messages      = $this->to_wp_messages( $messages, $conversion_model );
+		$result           = $this->execute_prompt( $wp_messages, $system, $include_tools, $model_preference, $exact_model );
 
 		// When no explicit provider is given and the provider (e.g. OpenAI's Responses API)
 		// rejects a mixed function-call/-response message layout, retry once with OpenAI-style
@@ -97,16 +104,17 @@ class Haydi_AI_Client {
 		// is free — the first attempt never left the process.
 		if (
 			is_wp_error( $result ) &&
+			null === $exact_model &&
 			null === $model_preference &&
 			false !== strpos( $result->get_error_message(), 'must be the only part in a message' )
 		) {
 			$wp_messages = $this->to_wp_messages( $messages, $model_preference, self::CONVERSION_MODE_OPENAI_SPLIT );
-			$result      = $this->execute_prompt( $wp_messages, $system, $include_tools, $model_preference );
+			$result      = $this->execute_prompt( $wp_messages, $system, $include_tools, $model_preference, null );
 		}
 
-		if ( is_wp_error( $result ) && $this->should_retry_with_google_tool_transcript( $model_preference, $result ) ) {
+		if ( null === $exact_model && is_wp_error( $result ) && $this->should_retry_with_google_tool_transcript( $model_preference, $result ) ) {
 			$wp_messages = $this->to_wp_messages( $messages, $model_preference, self::CONVERSION_MODE_TOOL_TRANSCRIPT );
-			$result      = $this->execute_prompt( $wp_messages, $system, $include_tools, $model_preference );
+			$result      = $this->execute_prompt( $wp_messages, $system, $include_tools, $model_preference, null );
 		}
 
 		if ( is_wp_error( $result ) ) {
@@ -123,6 +131,18 @@ class Haydi_AI_Client {
 		}
 
 		$response = $this->to_internal_format( $result );
+		if (
+			null !== $exact_model &&
+			(
+				(string) ( $exact_model[0] ?? '' ) !== (string) ( $response['provider'] ?? '' ) ||
+				(string) ( $exact_model[1] ?? '' ) !== (string) ( $response['model'] ?? '' )
+			)
+		) {
+			return new WP_Error(
+				'provider_continuation_source_changed',
+				'The provider or model changed while resuming a tool turn. The private continuation was not replayed to another source.'
+			);
+		}
 		$this->log_ai_client_event(
 			'prompt_internal_response',
 			array(
@@ -139,6 +159,143 @@ class Haydi_AI_Client {
 	}
 
 	/**
+	 * Project untrusted browser/storage history onto Haydi's portable transcript.
+	 *
+	 * Provider Continuation fields are intentionally not part of this schema. This
+	 * method is the defensive boundary that prevents a client from submitting
+	 * thought-channel data or provider metadata for privileged same-source replay.
+	 */
+	public static function sanitize_public_transcript( array $messages ): array {
+		$sanitized = array();
+
+		foreach ( $messages as $message ) {
+			if ( ! is_array( $message ) ) {
+				continue;
+			}
+
+			$role = (string) ( $message['role'] ?? '' );
+			if ( 'user' !== $role && 'assistant' !== $role ) {
+				continue;
+			}
+
+			$content = $message['content'] ?? '';
+			if ( is_string( $content ) ) {
+				$sanitized[] = array(
+					'role'    => $role,
+					'content' => $content,
+				);
+				continue;
+			}
+
+			if ( ! is_array( $content ) ) {
+				continue;
+			}
+
+			$blocks = array();
+			foreach ( $content as $block ) {
+				if ( ! is_array( $block ) ) {
+					continue;
+				}
+
+				$type = (string) ( $block['type'] ?? '' );
+				if ( 'thought' === ( $block['channel'] ?? '' ) && ! ( 'assistant' === $role && 'tool_use' === $type ) ) {
+					continue;
+				}
+				if ( 'text' === $type && isset( $block['text'] ) && is_string( $block['text'] ) ) {
+					$blocks[] = array(
+						'type' => 'text',
+						'text' => $block['text'],
+					);
+					continue;
+				}
+
+				if ( 'assistant' === $role && 'tool_use' === $type ) {
+					$input    = $block['input'] ?? array();
+					$blocks[] = array(
+						'type'  => 'tool_use',
+						'id'    => is_string( $block['id'] ?? null ) ? $block['id'] : '',
+						'name'  => is_string( $block['name'] ?? null ) ? $block['name'] : '',
+						'input' => is_array( $input ) || is_object( $input ) ? $input : array(),
+					);
+					continue;
+				}
+
+				if ( 'user' === $role && 'tool_result' === $type ) {
+					$blocks[] = array(
+						'type'        => 'tool_result',
+						'tool_use_id' => is_string( $block['tool_use_id'] ?? null ) ? $block['tool_use_id'] : '',
+						'name'        => is_string( $block['name'] ?? null ) ? $block['name'] : '',
+						'content'     => $block['content'] ?? '',
+					);
+				}
+			}
+
+			if ( ! empty( $blocks ) ) {
+				$sanitized[] = array(
+					'role'    => $role,
+					'content' => $blocks,
+				);
+			}
+		}
+
+		return $sanitized;
+	}
+
+	/**
+	 * Adapt completed portable Tool turns to ordinary text for a fresh request.
+	 *
+	 * Native Tool messages can require provider-private signatures or reasoning
+	 * that Haydi deliberately does not persist after the active Tool turn. Textual
+	 * history retains the semantics without replaying incomplete protocol state.
+	 */
+	public static function portable_provider_history( array $messages ): array {
+		$history = self::sanitize_public_transcript( $messages );
+
+		foreach ( $history as &$message ) {
+			if ( ! is_array( $message['content'] ) ) {
+				continue;
+			}
+
+			foreach ( $message['content'] as &$block ) {
+				if ( 'assistant' === $message['role'] && 'tool_use' === $block['type'] ) {
+					$input = wp_json_encode( $block['input'] );
+					$block = array(
+						'type' => 'text',
+						'text' => sprintf(
+							'Tool requested%s: %s' . "\n" . 'Input: %s',
+							'' !== $block['id'] ? ' (' . $block['id'] . ')' : '',
+							'' !== $block['name'] ? $block['name'] : 'unknown_tool',
+							is_string( $input ) ? $input : '{}'
+						),
+					);
+					continue;
+				}
+
+				if ( 'user' === $message['role'] && 'tool_result' === $block['type'] ) {
+					$result = $block['content'];
+					if ( ! is_string( $result ) ) {
+						$encoded = wp_json_encode( $result );
+						$result  = is_string( $encoded ) ? $encoded : '';
+					}
+					$block = array(
+						'type' => 'text',
+						'text' => sprintf(
+							'Tool result%s: %s' . "\n" . 'Output: %s',
+							'' !== $block['tool_use_id'] ? ' (' . $block['tool_use_id'] . ')' : '',
+							'' !== $block['name'] ? $block['name'] : 'unknown_tool',
+							$result
+						),
+					);
+				}
+			}
+			unset( $block );
+		}
+		unset( $message );
+
+		return $history;
+	}
+
+	/**
 	 * Build and invoke the WP AI Client prompt with the given pre-converted messages.
 	 *
 	 * Extracted so send_messages() can call it twice (normal + OpenAI-split retry)
@@ -148,6 +305,7 @@ class Haydi_AI_Client {
 	 * @param  string     $system           Optional system prompt.
 	 * @param  bool       $include_tools    Whether to attach function declarations.
 	 * @param  array|null $model_preference [provider_id, model_id] or null.
+	 * @param  array|null $exact_model      Exact [provider_id, model_id] for source-bound replay.
 	 * @return mixed GenerativeAiResult or WP_Error.
 	 * @throws \Throwable When the underlying AI Client throws during generation.
 	 */
@@ -155,7 +313,8 @@ class Haydi_AI_Client {
 		array $wp_messages,
 		string $system,
 		bool $include_tools,
-		?array $model_preference
+		?array $model_preference,
+		?array $exact_model = null
 	): mixed {
 		// The WP AI Client prompt builder reads wp_ai_client_default_request_timeout
 		// in its constructor, so the filter must be in place before wp_ai_client_prompt().
@@ -168,7 +327,21 @@ class Haydi_AI_Client {
 		$builder = wp_ai_client_prompt( $wp_messages )
 			->using_max_tokens( $this->get_max_tokens() );
 
-		if ( $model_preference ) {
+		if ( $exact_model ) {
+			try {
+				$model   = AiClient::defaultRegistry()->getProviderModel(
+					(string) ( $exact_model[0] ?? '' ),
+					(string) ( $exact_model[1] ?? '' )
+				);
+				$builder = $builder->using_model( $model );
+			} catch ( \Throwable $e ) {
+				remove_filter( 'wp_ai_client_default_request_timeout', $extend_timeout );
+				return new WP_Error(
+					'provider_continuation_source_unavailable',
+					'The provider and model that started this tool turn are no longer available.'
+				);
+			}
+		} elseif ( $model_preference ) {
 			try {
 				$builder = $builder->using_model_preference( $model_preference );
 			} catch ( \Throwable $e ) {
@@ -402,6 +575,12 @@ class Haydi_AI_Client {
 					$wp_messages[] = $user_message;
 				}
 			} elseif ( 'assistant' === $role ) {
+				// Server-created continuation data retains provider protocol state that is
+				// deliberately absent from the public transcript. Prefer it when present,
+				// while continuing to accept the legacy content-only history shape.
+				if ( array_key_exists( 'continuation', $msg ) && is_array( $msg['continuation'] ) ) {
+					$content = $msg['continuation'];
+				}
 				foreach ( $this->model_messages( $content, $conversion_mode ) as $model_message ) {
 					$wp_messages[] = $model_message;
 				}
@@ -420,19 +599,21 @@ class Haydi_AI_Client {
 		}
 
 		return match ( strtolower( (string) ( $model_preference[0] ?? '' ) ) ) {
-			'google' => self::CONVERSION_MODE_TOOL_TRANSCRIPT,
-			'openai' => self::CONVERSION_MODE_OPENAI_SPLIT,
-			default  => self::CONVERSION_MODE_DEFAULT,
+			'deepseek' => self::CONVERSION_MODE_TOOL_RESULT_SPLIT,
+			'google'   => self::CONVERSION_MODE_TOOL_TRANSCRIPT,
+			'openai'   => self::CONVERSION_MODE_OPENAI_SPLIT,
+			default    => self::CONVERSION_MODE_DEFAULT,
 		};
 	}
 
 	/**
 	 * Split a user content array into one or more UserMessage objects.
 	 *
-	 * OpenAI's Responses API requires function response parts to be isolated
-	 * from text/image input parts. Internal history can still store a single
-	 * user turn containing tool_result blocks followed by the user's next text;
-	 * this only adapts the provider request shape.
+	 * OpenAI-compatible adapters require function response parts to be isolated.
+	 * Internal history can still store a single user turn containing tool_result
+	 * blocks followed by the user's next text; this only adapts the provider
+	 * request shape. DeepSeek uses this split for results while retaining its
+	 * complete assistant message so reasoning_content stays attached to tool calls.
 	 *
 	 * @return UserMessage[]
 	 */
@@ -445,7 +626,10 @@ class Haydi_AI_Client {
 			return ! empty( $parts ) ? array( new UserMessage( $parts ) ) : array();
 		}
 
-		if ( self::CONVERSION_MODE_OPENAI_SPLIT !== $conversion_mode ) {
+		if (
+			self::CONVERSION_MODE_OPENAI_SPLIT !== $conversion_mode &&
+			self::CONVERSION_MODE_TOOL_RESULT_SPLIT !== $conversion_mode
+		) {
 			$parts = $this->user_parts( $content );
 			return ! empty( $parts ) ? array( new UserMessage( $parts ) ) : array();
 		}
@@ -543,9 +727,24 @@ class Haydi_AI_Client {
 
 		$parts = array();
 		foreach ( $content as $block ) {
-			$type = $block['type'] ?? '';
-			if ( 'text' === $type && '' !== ( $block['text'] ?? '' ) ) {
-				$parts[] = new MessagePart( $block['text'] );
+			if ( ! is_array( $block ) ) {
+				continue;
+			}
+
+			$type              = $block['type'] ?? '';
+			$channel           = $this->message_part_channel( $block );
+			$thought_signature = array_key_exists( 'thought_signature', $block )
+				? (string) $block['thought_signature']
+				: null;
+
+			// A plain-text compatibility transcript must never expose hidden model
+			// thought as regular content.
+			if ( self::CONVERSION_MODE_TOOL_TRANSCRIPT === $conversion_mode && $channel->isThought() ) {
+				continue;
+			}
+
+			if ( 'text' === $type && array_key_exists( 'text', $block ) && is_string( $block['text'] ) ) {
+				$parts[] = new MessagePart( $block['text'], $channel, $thought_signature );
 			} elseif ( 'tool_use' === $type ) {
 				if ( self::CONVERSION_MODE_TOOL_TRANSCRIPT === $conversion_mode ) {
 					$parts[] = new MessagePart( $this->format_tool_use_transcript( $block ) );
@@ -562,13 +761,34 @@ class Haydi_AI_Client {
 						name: $block['name'] ?? null,
 						args: ! empty( $raw_input ) ? $raw_input : new \stdClass(),
 					),
-					null,
-					! empty( $block['thought_signature'] ) ? (string) $block['thought_signature'] : null
+					$channel,
+					$thought_signature
+				);
+			} elseif ( 'tool_result' === $type ) {
+				$parts[] = new MessagePart(
+					$this->function_response_from_tool_result( $block ),
+					$channel,
+					$thought_signature
+				);
+			} elseif ( 'file' === $type && isset( $block['file'] ) && is_array( $block['file'] ) ) {
+				$parts[] = new MessagePart(
+					File::fromArray( $block['file'] ),
+					$channel,
+					$thought_signature
 				);
 			}
 		}
 
 		return $parts;
+	}
+
+	/**
+	 * Resolve a continuation block's provider-neutral channel.
+	 */
+	private function message_part_channel( array $block ): MessagePartChannelEnum {
+		return 'thought' === ( $block['channel'] ?? 'content' )
+			? MessagePartChannelEnum::thought()
+			: MessagePartChannelEnum::content();
 	}
 
 	/**
@@ -595,27 +815,27 @@ class Haydi_AI_Client {
 		}
 
 		// OpenAI Responses API: function call parts must be in their own message.
-		$text_parts = array();
-		$call_parts = array();
+		// Flush adjacent non-call parts around each call so splitting does not
+		// reorder thought/content parts from the provider continuation.
+		$messages       = array();
+		$non_call_parts = array();
 		foreach ( $parts as $part ) {
 			if ( null !== $part->getFunctionCall() ) {
-				$call_parts[] = $part;
-			} else {
-				$text_parts[] = $part;
+				if ( ! empty( $non_call_parts ) ) {
+					$messages[]     = new ModelMessage( $non_call_parts );
+					$non_call_parts = array();
+				}
+				$messages[] = new ModelMessage( array( $part ) );
+				continue;
 			}
+
+			$non_call_parts[] = $part;
 		}
 
-		if ( empty( $call_parts ) ) {
-			return array( new ModelMessage( $parts ) );
+		if ( ! empty( $non_call_parts ) ) {
+			$messages[] = new ModelMessage( $non_call_parts );
 		}
 
-		$messages = array();
-		if ( ! empty( $text_parts ) ) {
-			$messages[] = new ModelMessage( $text_parts );
-		}
-		foreach ( $call_parts as $call_part ) {
-			$messages[] = new ModelMessage( array( $call_part ) );
-		}
 		return $messages;
 	}
 
@@ -662,62 +882,154 @@ class Haydi_AI_Client {
 	/**
 	 * Convert a GenerativeAiResult back to the internal message format.
 	 *
+	 * The public content projection excludes provider thought and protocol metadata.
+	 * Continuation retains every ordered part so a same-provider/model subturn can
+	 * faithfully reconstruct the assistant message.
+	 *
 	 * Stop_reason is 'tool_use' when the model made function calls, 'end_turn' otherwise.
 	 */
 	private function to_internal_format( object $result ): array {
-		$content_blocks = array();
-		$has_tool_calls = false;
+		$content_blocks      = array();
+		$continuation_blocks = array();
+		$has_tool_calls      = false;
 
 		// toMessage() returns only candidates[0], which misses function_call candidates
 		// that arrive as separate output items (e.g. OpenAI Responses API). Iterate all.
 		foreach ( $result->getCandidates() as $candidate ) {
 			foreach ( $candidate->getMessage()->getParts() as $part ) {
-				$call = $part->getFunctionCall();
-
-				// Skip non-content parts (reasoning/thinking tokens) unless they carry a function call.
-				if ( ! $part->getChannel()->isContent() && null === $call ) {
+				$continuation_block = $this->continuation_block_from_part( $part );
+				if ( null === $continuation_block ) {
 					continue;
 				}
 
-				$text = $part->getText();
-				if ( null !== $text && '' !== $text ) {
-					$content_blocks[] = array(
-						'type' => 'text',
-						'text' => $text,
-					);
-				}
-				if ( null !== $call ) {
+				$continuation_blocks[] = $continuation_block;
+				if ( 'tool_use' === $continuation_block['type'] ) {
 					$has_tool_calls = true;
-					$tool_use_block = array(
-						'type'  => 'tool_use',
-						'id'    => $call->getId() ?? uniqid( 'tool_' ),
-						'name'  => $call->getName() ?? '',
-						'input' => $call->getArgs() ?? array(),
-					);
+				}
 
-					$thought_signature = $part->getThoughtSignature();
-					if ( null !== $thought_signature && '' !== $thought_signature ) {
-						$tool_use_block['thought_signature'] = $thought_signature;
-					}
-
-					$content_blocks[] = $tool_use_block;
+				$public_block = $this->public_content_block( $continuation_block );
+				if ( null !== $public_block ) {
+					$content_blocks[] = $public_block;
 				}
 			}
 		}
 
 		$token_usage = $result->getTokenUsage();
-		$model       = $result->getModelMetadata()->getId();
+		$model       = $this->result_metadata_id( $result, 'getModelMetadata' );
+		$provider    = $this->result_metadata_id( $result, 'getProviderMetadata' );
 
-		return array(
-			'stop_reason' => $has_tool_calls ? 'tool_use' : 'end_turn',
-			'content'     => $content_blocks,
-			'usage'       => array(
+		$response = array(
+			'stop_reason'  => $has_tool_calls ? 'tool_use' : 'end_turn',
+			'content'      => $content_blocks,
+			'continuation' => $continuation_blocks,
+			'usage'        => array(
 				'prompt'     => $token_usage->getPromptTokens(),
 				'completion' => $token_usage->getCompletionTokens(),
 				'total'      => $token_usage->getTotalTokens(),
 			),
-			'model'       => $model,
+			'provider'     => $provider,
+			'model'        => $model,
 		);
+
+		if ( method_exists( $result, 'getId' ) ) {
+			$response['response_id'] = (string) $result->getId();
+		}
+
+		return $response;
+	}
+
+	/**
+	 * Convert one WP AI Client MessagePart into Haydi's provider-neutral shape.
+	 */
+	private function continuation_block_from_part( MessagePart $part ): ?array {
+		$block = array(
+			'channel' => $part->getChannel()->isContent() ? 'content' : 'thought',
+		);
+
+		$text = $part->getText();
+		if ( null !== $text ) {
+			$block['type'] = 'text';
+			$block['text'] = $text;
+		} else {
+			$call = $part->getFunctionCall();
+			if ( null !== $call ) {
+				$call_args = $call->getArgs();
+				if ( is_object( $call_args ) ) {
+					$encoded_args = wp_json_encode( $call_args );
+					$call_args    = is_string( $encoded_args ) ? json_decode( $encoded_args, true ) : array();
+				}
+				if ( ! is_array( $call_args ) ) {
+					$call_args = array();
+				}
+				$block['type']  = 'tool_use';
+				$block['id']    = $call->getId() ?? uniqid( 'tool_' );
+				$block['name']  = $call->getName() ?? '';
+				$block['input'] = $call_args;
+			} else {
+				$response = method_exists( $part, 'getFunctionResponse' ) ? $part->getFunctionResponse() : null;
+				if ( null !== $response ) {
+					$block['type']        = 'tool_result';
+					$block['tool_use_id'] = $response->getId();
+					$block['name']        = $response->getName();
+					$block['content']     = $response->getResponse();
+				} else {
+					$file = method_exists( $part, 'getFile' ) ? $part->getFile() : null;
+					if ( null === $file ) {
+						return null;
+					}
+
+					$block['type'] = 'file';
+					$block['file'] = $file->toArray();
+				}
+			}
+		}
+
+		$thought_signature = $part->getThoughtSignature();
+		if ( null !== $thought_signature ) {
+			// Empty and null are semantically distinct for some provider protocols.
+			$block['thought_signature'] = $thought_signature;
+		}
+
+		return $block;
+	}
+
+	/**
+	 * Project a rich continuation block into browser/persistence-safe content.
+	 */
+	private function public_content_block( array $block ): ?array {
+		// Function calls remain actionable even if a connector labels their part as
+		// thought. All other hidden-channel data stays server-side.
+		if ( 'thought' === $block['channel'] && 'tool_use' !== $block['type'] ) {
+			return null;
+		}
+
+		$public_block = $block;
+		unset( $public_block['channel'], $public_block['thought_signature'] );
+
+		if ( 'text' === $public_block['type'] && '' === $public_block['text'] ) {
+			return null;
+		}
+
+		return $public_block;
+	}
+
+	/**
+	 * Read an actual result provider/model ID without masking a valid response if
+	 * a third-party connector returns incomplete metadata.
+	 */
+	private function result_metadata_id( object $result, string $getter ): string {
+		try {
+			if ( ! method_exists( $result, $getter ) ) {
+				return '';
+			}
+
+			$metadata = $result->{$getter}();
+			return is_object( $metadata ) && method_exists( $metadata, 'getId' )
+				? (string) $metadata->getId()
+				: '';
+		} catch ( \Throwable $e ) {
+			return '';
+		}
 	}
 
 	// -------------------------------------------------------------------------

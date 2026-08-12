@@ -13,6 +13,12 @@ if ( ! function_exists( 'wp_json_encode' ) ) {
     }
 }
 
+if ( ! function_exists( 'wp_salt' ) ) {
+    function wp_salt( string $scheme = 'auth' ): string { // phpcs:ignore
+        return 'haydi-unit-test-' . $scheme . '-salt';
+    }
+}
+
 // Stubs so built-in tool modules can be loaded without a running WP environment.
 // Brain\Monkey overrides these per-test as needed.
 if ( ! function_exists( 'add_filter' ) ) {

@@ -16,6 +16,7 @@ const path = require('path');
 const BASE       = 'http://localhost:9888';
 const PLUGIN_URL = `${BASE}/wp-admin/tools.php?page=haydi`;
 const TOOL_USE_ID = 'toolu_test_pending_query_42';
+const CONTINUATION_HANDLE = 'a'.repeat(64);
 // Session cookies saved by global-setup.js — reused so no per-test login is needed.
 const AUTH_FILE = path.join(__dirname, 'playwright-auth.json');
 
@@ -144,6 +145,7 @@ test.describe('Chat — pending proposal handling', () => {
         // Second call → captures the messages array and ends the turn.
         let chatCalls   = 0;
         let secondMsgs  = null;
+        let secondContinuationHandle = null;
         await page.route('**/admin-ajax.php', async (route) => {
             const params = new URLSearchParams(route.request().postData() || '');
             const action = params.get('action');
@@ -159,8 +161,10 @@ test.describe('Chat — pending proposal handling', () => {
                     role:    'assistant',
                     content: [
                         { type: 'text', text: 'I will list categories first.' },
+                        { type: 'tool_use', id: 'toolu_pre_pending', name: 'read_status', input: {} },
                         { type: 'tool_use', id: TOOL_USE_ID, name: 'run_query',
                           input: { sql: 'SELECT 1', reason: 'inspect categories' } },
+                        { type: 'tool_use', id: 'toolu_post_pending', name: 'read_status', input: {} },
                     ],
                 }]);
                 return fulfillChat(route, action, {
@@ -171,13 +175,22 @@ test.describe('Chat — pending proposal handling', () => {
                         tool_name:   'run_query',
                         label:       'Run SQL Query',
                         arguments:   { sql: 'SELECT 1', reason: 'inspect categories' },
-                        pre_results: [],
+                        pre_results: [{
+                            type: 'tool_result', tool_use_id: 'toolu_pre_pending',
+                            name: 'read_status', content: 'before',
+                        }],
+                        post_results: [{
+                            type: 'tool_result', tool_use_id: 'toolu_post_pending',
+                            name: 'read_status', content: 'after',
+                        }],
                     },
+                    continuation_handle: CONTINUATION_HANDLE,
                 });
             }
 
             // Second call: capture and respond with a no-op end_turn.
             secondMsgs = reqMessages;
+            secondContinuationHandle = params.get('continuation_handle');
             return fulfillChat(route, action, {
                 text:     'OK',
                 messages: reqMessages.concat([{ role: 'assistant', content: 'OK' }]),
@@ -202,6 +215,7 @@ test.describe('Chat — pending proposal handling', () => {
 
         // Wait for the second chat request to land.
         await expect.poll(() => chatCalls, { timeout: 5_000 }).toBeGreaterThanOrEqual(2);
+        expect(secondContinuationHandle).toBe(CONTINUATION_HANDLE);
 
         // The proposal panel must be hidden — sendMessage clears it.
         await expect(page.locator('#wpc-action-section')).toBeHidden();
@@ -215,8 +229,8 @@ test.describe('Chat — pending proposal handling', () => {
         const toolResultIds = last.content
             .filter((b) => b.type === 'tool_result')
             .map((b) => b.tool_use_id);
-        expect(toolResultIds).toContain(TOOL_USE_ID);
-        expect(last.content.find((b) => b.type === 'tool_result').name).toBe('run_query');
+        expect(toolResultIds).toEqual(['toolu_pre_pending', TOOL_USE_ID, 'toolu_post_pending']);
+        expect(last.content.find((b) => b.tool_use_id === TOOL_USE_ID).name).toBe('run_query');
 
         const textBlocks = last.content
             .filter((b) => b.type === 'text')

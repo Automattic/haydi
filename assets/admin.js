@@ -20,9 +20,11 @@
     var state = {
         messages:       [],     // Full messages array (chat history).
         displayLog:     [],     // Visible chat as {role, text} entries — saved verbatim.
-        // Single outstanding approval proposal: { kind, tool_use_id, pre_results, ...payload } or null.
+        // Single outstanding approval proposal: { kind, tool_use_id, pre_results, post_results, ...payload } or null.
         // Server design guarantees at most one is active at a time.
         pending:        null,
+        // Opaque cursor only. Provider-private continuation data never enters the browser.
+        continuationHandle: null,
         busy:           false,  // Prevent concurrent requests.
         xhr:            null,   // Current in-flight AJAX request (for abort).
         applyInFlight:  false,  // True while an approval AJAX (Apply / Execute / etc.) is in flight.
@@ -795,6 +797,7 @@
     }
 
     function loadChat(id, opts) {
+        discardProviderContinuation();
         var silent = opts && opts.silent;
         post('haydi_load_chat', { id: id }, function (res) {
             if (!res.success) {
@@ -1061,6 +1064,23 @@
         data.action = action;
         data.nonce  = haydi.nonce;
         return $.post(haydi.ajaxUrl, data, callback);
+    }
+
+    function continuationPayload() {
+        var handle = state.continuationHandle;
+        // Handles are one-shot server claims. A retry after any failure uses the
+        // Sanitized Transcript instead of replaying a consumed private cursor.
+        state.continuationHandle = null;
+        return handle ? { continuation_handle: handle } : {};
+    }
+
+    function discardProviderContinuation() {
+        var handle = state.continuationHandle;
+        state.continuationHandle = null;
+        if (!handle) { return; }
+
+        // Best-effort cleanup. Records are short-lived even if this request fails.
+        post('haydi_discard_continuation', { continuation_handle: handle }, function () {});
     }
 
     function ajaxResponseMessage(jqXHR) {
@@ -1491,8 +1511,14 @@
     });
 
     $('#wpc-model-menu').on('click', '.wpc-model-menu__item', function () {
+        if (state.pending) {
+            appendMessage('error', 'Resolve or cancel the pending proposal before changing models.');
+            closeModelMenu();
+            return;
+        }
         var providerId = $(this).data('provider') || '';
         var modelId = $(this).data('model') || '';
+        discardProviderContinuation();
         selectedModelPreference = findModelChoice(providerId, modelId) || defaultModelChoice();
         saveSelectedModelPreference();
         renderModelMenu();
@@ -1540,6 +1566,7 @@
         // is cleared below would create a stray new chat.
         if (saveTimer) { window.clearTimeout(saveTimer); saveTimer = null; }
         saveCurrentChatNow({ detached: true });
+        discardProviderContinuation();
         currentChatId   = null;
         syncChatIdToUrl(null);
         state.messages   = [];
@@ -1575,6 +1602,8 @@
             if (done) { done(false); }
             return;
         }
+
+        discardProviderContinuation();
 
         setBusy(true);
         $('#wpc-btn-send').prop('disabled', true);
@@ -1686,6 +1715,7 @@
                         name:        p.tool_name,
                         content:     'The user did not approve the proposed ' + approvalSubject(p) + ' and sent a new instruction instead.',
                     },
+                ], p.post_results || [], [
                     { type: 'text', text: apiText },
                 ]),
             });
@@ -1781,12 +1811,19 @@
         if (data.messages) {
             state.messages = data.messages;
         }
+        state.continuationHandle = typeof data.continuation_handle === 'string'
+            ? data.continuation_handle
+            : null;
 
         // Show read-only tool activity before the assistant's prose. This
         // is built from actual server-side tool execution metadata, not
         // from the model's narration.
         if (data.activity && data.activity.length) {
             appendToolActivity(data.activity);
+        }
+
+        if (data.continuation_warning) {
+            appendChatError(data.continuation_warning, false);
         }
 
         // Show the AI's text response.
@@ -1839,7 +1876,7 @@
 
         state.xhr = post('haydi_chat', $.extend({
             messages: JSON.stringify(state.messages),
-        }, modelPreferencePayload()), function (res) {
+        }, modelPreferencePayload(), continuationPayload()), function (res) {
             $thinking.remove();
             finishChatRequest();
 
@@ -1867,7 +1904,7 @@
 
         state.xhr = streamPost('haydi_chat_stream', $.extend({
             messages: JSON.stringify(state.messages),
-        }, modelPreferencePayload()), function (event, data) {
+        }, modelPreferencePayload(), continuationPayload()), function (event, data) {
             if (event === 'status') {
                 progress.setStatus(data.message || 'Working...');
             } else if (event === 'assistant_text') {
@@ -2492,7 +2529,7 @@
                 // catalog result name may be canonical and must not replace it.
                 name:        p.tool_name,
                 content:     content,
-            }]),
+            }], p.post_results || []),
         });
     }
 

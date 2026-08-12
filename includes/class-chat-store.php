@@ -153,6 +153,10 @@ class Haydi_Chat_Store extends Haydi_Ajax_Tool_Base {
 		if ( ! is_array( $messages ) || empty( $messages ) ) {
 			wp_send_json_error( array( 'message' => 'messages is required.' ) );
 		}
+		$messages = Haydi_AI_Client::sanitize_public_transcript( $messages );
+		if ( empty( $messages ) ) {
+			wp_send_json_error( array( 'message' => 'messages is required.' ) );
+		}
 
 		// Trim the oldest turns if the encoded payload is over budget.
 		if ( strlen( $raw_messages ) > self::MAX_MESSAGES_BYTES ) {
@@ -306,6 +310,7 @@ class Haydi_Chat_Store extends Haydi_Ajax_Tool_Base {
 		if ( ! is_array( $messages ) ) {
 			wp_send_json_error( array( 'message' => 'Chat not found.' ) );
 		}
+		$messages = Haydi_AI_Client::sanitize_public_transcript( $messages );
 
 		$display = get_user_meta( $user_id, 'haydi_chat_display_' . $id, true );
 		if ( ! is_array( $display ) ) {
@@ -385,6 +390,7 @@ class Haydi_Chat_Store extends Haydi_Ajax_Tool_Base {
 		if ( ! is_array( $messages ) ) {
 			wp_send_json_error( array( 'message' => 'Chat not found.' ) );
 		}
+		$messages = Haydi_AI_Client::sanitize_public_transcript( $messages );
 
 		$context = self::title_context_from_messages( $messages );
 		if ( '' === $context || ! self::has_assistant_text( $messages ) ) {

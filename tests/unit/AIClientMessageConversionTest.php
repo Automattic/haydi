@@ -7,20 +7,46 @@ use PHPUnit\Framework\TestCase;
 
 if ( ! class_exists( 'WordPress\AiClient\Messages\DTO\MessagePart' ) ) {
 	eval(
-		'namespace WordPress\AiClient\Messages\DTO {
+		'namespace WordPress\AiClient\Messages\Enums {
+			class MessagePartChannelEnum {
+				private function __construct( private string $value ) {}
+				public static function content(): self { return new self( "content" ); }
+				public static function thought(): self { return new self( "thought" ); }
+				public function isContent(): bool { return "content" === $this->value; }
+				public function isThought(): bool { return "thought" === $this->value; }
+			}
+		}
+		namespace WordPress\AiClient\Files\DTO {
+			class File {
+				public function __construct( private array $data ) {}
+				public static function fromArray( array $data ): self { return new self( $data ); }
+				public function toArray(): array { return $this->data; }
+			}
+		}
+		namespace WordPress\AiClient\Messages\DTO {
 				class MessagePart {
 					private mixed $value;
+					private \WordPress\AiClient\Messages\Enums\MessagePartChannelEnum $channel;
 					private ?string $thoughtSignature;
-					public function __construct( mixed $value, mixed $channel = null, ?string $thoughtSignature = null ) {
+					public function __construct(
+						mixed $value,
+						?\WordPress\AiClient\Messages\Enums\MessagePartChannelEnum $channel = null,
+						?string $thoughtSignature = null
+					) {
 						$this->value = $value;
+						$this->channel = $channel ?? \WordPress\AiClient\Messages\Enums\MessagePartChannelEnum::content();
 						$this->thoughtSignature = $thoughtSignature;
 					}
 					public function getText(): ?string { return is_string( $this->value ) ? $this->value : null; }
+					public function getChannel(): \WordPress\AiClient\Messages\Enums\MessagePartChannelEnum { return $this->channel; }
 					public function getFunctionCall(): ?\WordPress\AiClient\Tools\DTO\FunctionCall {
 						return $this->value instanceof \WordPress\AiClient\Tools\DTO\FunctionCall ? $this->value : null;
 					}
 					public function getFunctionResponse(): ?\WordPress\AiClient\Tools\DTO\FunctionResponse {
 						return $this->value instanceof \WordPress\AiClient\Tools\DTO\FunctionResponse ? $this->value : null;
+					}
+					public function getFile(): ?\WordPress\AiClient\Files\DTO\File {
+						return $this->value instanceof \WordPress\AiClient\Files\DTO\File ? $this->value : null;
 					}
 					public function getThoughtSignature(): ?string { return $this->thoughtSignature; }
 				}
@@ -136,6 +162,73 @@ class AIClientMessageConversionTest extends TestCase {
 		$this->assertCount( 2, $parts );
 		$this->assertSame( 'call_1', $parts[0]->getFunctionResponse()->getId() );
 		$this->assertSame( 'Continue with the portfolio page.', $parts[1]->getText() );
+	}
+
+	public function test_deepseek_keeps_reasoning_with_tool_calls_but_splits_each_tool_result(): void {
+		$wp_messages = $this->convert_to_wp_messages(
+			array(
+				array(
+					'role'         => 'assistant',
+					'content'      => array(),
+					'continuation' => array(
+						array(
+							'type'              => 'text',
+							'text'              => 'Private reasoning.',
+							'channel'           => 'thought',
+							'thought_signature' => 'reasoning_content',
+						),
+						array(
+							'type'    => 'tool_use',
+							'id'      => 'call_1',
+							'name'    => 'read_file',
+							'input'   => array( 'path' => 'one.php' ),
+							'channel' => 'content',
+						),
+						array(
+							'type'    => 'tool_use',
+							'id'      => 'call_2',
+							'name'    => 'read_file',
+							'input'   => array( 'path' => 'two.php' ),
+							'channel' => 'content',
+						),
+					),
+				),
+				array(
+					'role'    => 'user',
+					'content' => array(
+						array(
+							'type'        => 'tool_result',
+							'tool_use_id' => 'call_1',
+							'name'        => 'read_file',
+							'content'     => 'one',
+						),
+						array(
+							'type'        => 'tool_result',
+							'tool_use_id' => 'call_2',
+							'name'        => 'read_file',
+							'content'     => 'two',
+						),
+					),
+				),
+			),
+			array( 'deepseek', 'deepseek-v4-flash' )
+		);
+
+		$this->assertCount( 3, $wp_messages );
+		$this->assertInstanceOf( \WordPress\AiClient\Messages\DTO\ModelMessage::class, $wp_messages[0] );
+		$this->assertInstanceOf( \WordPress\AiClient\Messages\DTO\UserMessage::class, $wp_messages[1] );
+		$this->assertInstanceOf( \WordPress\AiClient\Messages\DTO\UserMessage::class, $wp_messages[2] );
+
+		$assistant_parts = $wp_messages[0]->getParts();
+		$this->assertCount( 3, $assistant_parts );
+		$this->assertTrue( $assistant_parts[0]->getChannel()->isThought() );
+		$this->assertSame( 'Private reasoning.', $assistant_parts[0]->getText() );
+		$this->assertSame( 'reasoning_content', $assistant_parts[0]->getThoughtSignature() );
+		$this->assertSame( 'call_1', $assistant_parts[1]->getFunctionCall()->getId() );
+		$this->assertSame( 'call_2', $assistant_parts[2]->getFunctionCall()->getId() );
+
+		$this->assertSame( 'call_1', $wp_messages[1]->getParts()[0]->getFunctionResponse()->getId() );
+		$this->assertSame( 'call_2', $wp_messages[2]->getParts()[0]->getFunctionResponse()->getId() );
 	}
 
 	public function test_function_response_preserves_tool_name_for_non_google_providers(): void {
@@ -340,6 +433,239 @@ class AIClientMessageConversionTest extends TestCase {
 		$this->assertSame( 'call_1', $result_parts[0]->getFunctionResponse()->getId() );
 	}
 
+	public function test_result_keeps_rich_continuation_separate_from_public_content(): void {
+		$parts = array(
+			new \WordPress\AiClient\Messages\DTO\MessagePart(
+				'Inspect the schema before calling the tool.',
+				\WordPress\AiClient\Messages\Enums\MessagePartChannelEnum::thought(),
+				'reasoning-signature'
+			),
+			new \WordPress\AiClient\Messages\DTO\MessagePart(
+				'',
+				\WordPress\AiClient\Messages\Enums\MessagePartChannelEnum::thought(),
+				''
+			),
+			new \WordPress\AiClient\Messages\DTO\MessagePart( 'I will inspect the database.' ),
+			new \WordPress\AiClient\Messages\DTO\MessagePart(
+				new \WordPress\AiClient\Tools\DTO\FunctionCall(
+					id: 'call_1',
+					name: 'run_query',
+					args: array( 'sql' => 'SELECT 1' )
+				),
+				\WordPress\AiClient\Messages\Enums\MessagePartChannelEnum::content(),
+				''
+			),
+		);
+
+		$response = $this->convert_to_internal_format(
+			new Haydi_Test_Generative_Result(
+				$parts,
+				'deepseek',
+				'deepseek-reasoner',
+				'response_123'
+			)
+		);
+
+		$this->assertSame( 'tool_use', $response['stop_reason'] );
+		$this->assertSame( 'deepseek', $response['provider'] );
+		$this->assertSame( 'deepseek-reasoner', $response['model'] );
+		$this->assertSame( 'response_123', $response['response_id'] );
+
+		$this->assertSame(
+			array(
+				array(
+					'type' => 'text',
+					'text' => 'I will inspect the database.',
+				),
+				array(
+					'type'  => 'tool_use',
+					'id'    => 'call_1',
+					'name'  => 'run_query',
+					'input' => array( 'sql' => 'SELECT 1' ),
+				),
+			),
+			$response['content']
+		);
+
+		$this->assertSame(
+			array(
+				array(
+					'channel'           => 'thought',
+					'type'              => 'text',
+					'text'              => 'Inspect the schema before calling the tool.',
+					'thought_signature' => 'reasoning-signature',
+				),
+				array(
+					'channel'           => 'thought',
+					'type'              => 'text',
+					'text'              => '',
+					'thought_signature' => '',
+				),
+				array(
+					'channel' => 'content',
+					'type'    => 'text',
+					'text'    => 'I will inspect the database.',
+				),
+				array(
+					'channel'           => 'content',
+					'type'              => 'tool_use',
+					'id'                => 'call_1',
+					'name'              => 'run_query',
+					'input'             => array( 'sql' => 'SELECT 1' ),
+					'thought_signature' => '',
+				),
+			),
+			$response['continuation']
+		);
+	}
+
+	public function test_outbound_assistant_prefers_continuation_and_reconstructs_channels_and_signatures(): void {
+		$wp_messages = $this->convert_to_wp_messages(
+			array(
+				array(
+					'role'         => 'assistant',
+					'content'      => array(
+						array(
+							'type' => 'text',
+							'text' => 'This public projection must not replace continuation.',
+						),
+					),
+					'continuation' => array(
+						array(
+							'type'              => 'text',
+							'text'              => 'Private reasoning.',
+							'channel'           => 'thought',
+							'thought_signature' => 'reasoning-signature',
+						),
+						array(
+							'type'              => 'text',
+							'text'              => '',
+							'channel'           => 'thought',
+							'thought_signature' => '',
+						),
+						array(
+							'type'    => 'text',
+							'text'    => 'Visible answer.',
+							'channel' => 'content',
+						),
+						array(
+							'type'              => 'tool_use',
+							'id'                => 'call_1',
+							'name'              => 'run_query',
+							'input'             => array( 'sql' => 'SELECT 1' ),
+							'channel'           => 'content',
+							'thought_signature' => '',
+						),
+					),
+				),
+			),
+			array( 'anthropic', 'claude-sonnet-4.5' )
+		);
+
+		$this->assertCount( 1, $wp_messages );
+		$parts = $wp_messages[0]->getParts();
+		$this->assertCount( 4, $parts );
+		$this->assertTrue( $parts[0]->getChannel()->isThought() );
+		$this->assertSame( 'Private reasoning.', $parts[0]->getText() );
+		$this->assertSame( 'reasoning-signature', $parts[0]->getThoughtSignature() );
+		$this->assertTrue( $parts[1]->getChannel()->isThought() );
+		$this->assertSame( '', $parts[1]->getText() );
+		$this->assertSame( '', $parts[1]->getThoughtSignature() );
+		$this->assertTrue( $parts[2]->getChannel()->isContent() );
+		$this->assertSame( 'Visible answer.', $parts[2]->getText() );
+		$this->assertSame( 'run_query', $parts[3]->getFunctionCall()->getName() );
+		$this->assertSame( '', $parts[3]->getThoughtSignature() );
+	}
+
+	public function test_public_transcript_sanitizer_rejects_client_supplied_private_state(): void {
+		$sanitized = Haydi_AI_Client::sanitize_public_transcript(
+			array(
+				array(
+					'role'         => 'assistant',
+					'provider'     => 'attacker-provider',
+					'model'        => 'attacker-model',
+					'continuation' => array(
+						array( 'type' => 'text', 'channel' => 'thought', 'text' => 'private continuation' ),
+					),
+					'content'      => array(
+						array(
+							'type'              => 'text',
+							'channel'           => 'thought',
+							'text'              => 'private thought',
+							'thought_signature' => 'secret-signature',
+						),
+						array(
+							'type'              => 'text',
+							'channel'           => 'content',
+							'text'              => 'Visible answer.',
+							'thought_signature' => 'must-not-cross',
+						),
+						array(
+							'type'              => 'tool_use',
+							'channel'           => 'thought',
+							'id'                => 'call_1',
+							'name'              => 'read_file',
+							'input'             => array( 'path' => 'example.php' ),
+							'thought_signature' => 'tool-signature',
+						),
+					),
+				),
+			)
+		);
+
+		$this->assertSame(
+			array(
+				array(
+					'role'    => 'assistant',
+					'content' => array(
+						array( 'type' => 'text', 'text' => 'Visible answer.' ),
+						array(
+							'type'  => 'tool_use',
+							'id'    => 'call_1',
+							'name'  => 'read_file',
+							'input' => array( 'path' => 'example.php' ),
+						),
+					),
+				),
+			),
+			$sanitized
+		);
+	}
+
+	public function test_completed_tool_history_becomes_portable_text_without_private_protocol_state(): void {
+		$history = Haydi_AI_Client::portable_provider_history(
+			array(
+				array(
+					'role'    => 'assistant',
+					'content' => array(
+						array(
+							'type'              => 'tool_use',
+							'id'                => 'call_1',
+							'name'              => 'read_file',
+							'input'             => array( 'path' => 'example.php' ),
+							'thought_signature' => 'must-not-cross',
+						),
+					),
+				),
+				array(
+					'role'    => 'user',
+					'content' => array(
+						array(
+							'type'        => 'tool_result',
+							'tool_use_id' => 'call_1',
+							'name'        => 'read_file',
+							'content'     => array( 'contents' => 'example' ),
+						),
+					),
+				),
+			)
+		);
+
+		$this->assertStringContainsString( 'Tool requested (call_1): read_file', $history[0]['content'][0]['text'] );
+		$this->assertStringContainsString( 'Tool result (call_1): read_file', $history[1]['content'][0]['text'] );
+		$this->assertStringNotContainsString( 'thought_signature', wp_json_encode( $history ) );
+	}
+
 	/**
 	 * @param array<int,array<string,mixed>> $messages
 	 * @param array{0:string,1:string}|null  $model_preference
@@ -351,5 +677,79 @@ class AIClientMessageConversionTest extends TestCase {
 		$method = new \ReflectionMethod( $client, 'to_wp_messages' );
 
 		return $method->invoke( $client, $messages, $model_preference, $conversion_mode );
+	}
+
+	private function convert_to_internal_format( object $result ): array {
+		$client = new Haydi_AI_Client();
+		$method = new \ReflectionMethod( $client, 'to_internal_format' );
+
+		return $method->invoke( $client, $result );
+	}
+}
+
+final class Haydi_Test_Generative_Result {
+	public function __construct(
+		private array $parts,
+		private string $provider,
+		private string $model,
+		private string $id
+	) {}
+
+	public function getCandidates(): array {
+		return array( new Haydi_Test_Candidate( $this->parts ) );
+	}
+
+	public function getTokenUsage(): Haydi_Test_Token_Usage {
+		return new Haydi_Test_Token_Usage();
+	}
+
+	public function getProviderMetadata(): Haydi_Test_Metadata {
+		return new Haydi_Test_Metadata( $this->provider );
+	}
+
+	public function getModelMetadata(): Haydi_Test_Metadata {
+		return new Haydi_Test_Metadata( $this->model );
+	}
+
+	public function getId(): string {
+		return $this->id;
+	}
+}
+
+final class Haydi_Test_Candidate {
+	public function __construct( private array $parts ) {}
+
+	public function getMessage(): Haydi_Test_Message {
+		return new Haydi_Test_Message( $this->parts );
+	}
+}
+
+final class Haydi_Test_Message {
+	public function __construct( private array $parts ) {}
+
+	public function getParts(): array {
+		return $this->parts;
+	}
+}
+
+final class Haydi_Test_Metadata {
+	public function __construct( private string $id ) {}
+
+	public function getId(): string {
+		return $this->id;
+	}
+}
+
+final class Haydi_Test_Token_Usage {
+	public function getPromptTokens(): int {
+		return 11;
+	}
+
+	public function getCompletionTokens(): int {
+		return 7;
+	}
+
+	public function getTotalTokens(): int {
+		return 18;
 	}
 }

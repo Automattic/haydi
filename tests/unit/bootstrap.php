@@ -119,6 +119,7 @@ require_once $plugin_root . '/includes/class-jetpack-context.php';
 require_once $plugin_root . '/includes/class-model-limits.php';
 require_once $plugin_root . '/includes/class-tool-catalog.php';
 require_once $plugin_root . '/includes/class-ai-client.php';
+require_once $plugin_root . '/includes/class-provider-continuation-store.php';
 require_once $plugin_root . '/includes/functions.php';
 require_once $plugin_root . '/includes/tools/class-ajax-tool-base.php';
 require_once $plugin_root . '/includes/tools/class-file-tool.php';

@@ -518,8 +518,10 @@ class Haydi_Test_Title_Client extends Haydi_AI_Client {
 		array $messages,
 		string $system = '',
 		bool $include_tools = true,
-		?array $model_preference = null
+		?array $model_preference = null,
+		?array $exact_model = null
 	): array|WP_Error {
+		unset( $exact_model );
 		$this->last_messages          = $messages;
 		$this->last_system            = $system;
 		$this->last_include_tools     = $include_tools;

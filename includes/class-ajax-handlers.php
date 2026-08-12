@@ -29,14 +29,17 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 	private ?Haydi_Tool_Catalog $tool_catalog = null;
 	/** @var Haydi_Api_Token_Manager API token manager. */
 	private Haydi_Api_Token_Manager $token_manager;
+	/** @var Haydi_Provider_Continuation_Store Server-only active Tool-turn state. */
+	private Haydi_Provider_Continuation_Store $continuation_store;
 
 	public function __construct( ?Haydi_Tool_Catalog $tool_catalog = null ) {
 		parent::__construct( new Haydi_Audit_Logger() );
 
-		$this->guard         = new Haydi_Filesystem_Guard();
-		$this->client        = new Haydi_AI_Client( $tool_catalog );
-		$this->tool_catalog  = $tool_catalog;
-		$this->token_manager = new Haydi_Api_Token_Manager();
+		$this->guard              = new Haydi_Filesystem_Guard();
+		$this->client             = new Haydi_AI_Client( $tool_catalog );
+		$this->tool_catalog       = $tool_catalog;
+		$this->token_manager      = new Haydi_Api_Token_Manager();
+		$this->continuation_store = new Haydi_Provider_Continuation_Store();
 
 		$file_tool  = new Haydi_File_Tool( $this->logger, $this->guard );
 		$chat_store = new Haydi_Chat_Store( $this->logger, $this->client );
@@ -74,6 +77,7 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 		foreach ( array(
 			'haydi_chat'                   => 'handle_chat',
 			'haydi_chat_stream'            => 'handle_chat_stream',
+			'haydi_discard_continuation'   => 'handle_discard_continuation',
 			'haydi_execute_approved_tool'  => 'handle_execute_approved_tool',
 			'haydi_compact_chat'           => 'handle_compact_chat',
 			'haydi_save_settings'          => 'handle_save_settings',
@@ -87,6 +91,20 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 		) as $action => $method ) {
 			add_action( 'wp_ajax_' . $action, array( $this, $method ) );
 		}
+	}
+
+	/**
+	 * Discard an in-memory browser cursor's server-side Provider Continuation.
+	 */
+	public function handle_discard_continuation(): void {
+		$this->verify();
+
+		$handle = $this->post_param( 'continuation_handle' );
+		if ( '' !== $handle ) {
+			$this->continuation_store->delete( $handle, get_current_user_id() );
+		}
+
+		wp_send_json_success();
 	}
 
 	/**
@@ -148,7 +166,12 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 			$this->send_chat_error( $request );
 		}
 
-		$response = $this->run_chat_loop( $request['messages'], $request['model_preference'] );
+		$response = $this->run_chat_loop(
+			$request['messages'],
+			$request['model_preference'],
+			null,
+			$request['continuation_handle']
+		);
 		if ( is_wp_error( $response ) ) {
 			$this->send_chat_error( $response );
 		}
@@ -183,7 +206,12 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 
 		$emit( 'status', array( 'message' => 'Working...' ) );
 
-		$response = $this->run_chat_loop( $request['messages'], $request['model_preference'], $emit );
+		$response = $this->run_chat_loop(
+			$request['messages'],
+			$request['model_preference'],
+			$emit,
+			$request['continuation_handle']
+		);
 		if ( is_wp_error( $response ) ) {
 			$emit( 'error', array( 'message' => $response->get_error_message() ) );
 			exit;
@@ -200,6 +228,7 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 	 * @return array|WP_Error {
 	 *     @type array      $messages         Internal message history.
 	 *     @type array|null $model_preference Optional [provider_id, model_id].
+	 *     @type string     $continuation_handle Opaque active Tool-turn cursor.
 	 * }
 	 */
 	private function prepare_chat_request(): array|WP_Error {
@@ -222,7 +251,13 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 		if ( ! is_array( $messages ) || empty( $messages ) ) {
 			return new WP_Error( 'messages_required', 'messages array is required.' );
 		}
-		$model_preference = $this->get_model_preference_from_request();
+		$model_preference    = $this->get_model_preference_from_request();
+		$continuation_handle = $this->post_param( 'continuation_handle' );
+		$messages            = Haydi_AI_Client::sanitize_public_transcript( $messages );
+
+		if ( empty( $messages ) ) {
+			return new WP_Error( 'messages_required', 'messages array is required.' );
+		}
 
 		// If the chat has grown beyond our budget, drop the oldest
 		// turns so the request still succeeds with a shorter context window.
@@ -231,8 +266,9 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 		}
 
 		return array(
-			'messages'         => $messages,
-			'model_preference' => $model_preference,
+			'messages'            => $messages,
+			'model_preference'    => $model_preference,
+			'continuation_handle' => $continuation_handle,
 		);
 	}
 
@@ -242,9 +278,28 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 	 * @param array         $messages Internal message history.
 	 * @param array|null    $model_preference Optional [provider_id, model_id].
 	 * @param callable|null $emit Optional progress emitter: fn( string $event, array $data = array() ).
+	 * @param string        $continuation_handle Opaque active Tool-turn cursor.
 	 * @return array|WP_Error Final response payload, or an error.
 	 */
-	private function run_chat_loop( array $messages, ?array $model_preference = null, ?callable $emit = null ): array|WP_Error {
+	private function run_chat_loop(
+		array $messages,
+		?array $model_preference = null,
+		?callable $emit = null,
+		string $continuation_handle = ''
+	): array|WP_Error {
+		$messages          = Haydi_AI_Client::sanitize_public_transcript( $messages );
+		$provider_messages = Haydi_AI_Client::portable_provider_history( $messages );
+		$exact_model       = null;
+
+		if ( '' !== $continuation_handle ) {
+			$resume = $this->resume_provider_continuation( $continuation_handle, $messages );
+			if ( is_wp_error( $resume ) ) {
+				return $resume;
+			}
+			$provider_messages = $resume['messages'];
+			$exact_model       = array( $resume['provider_id'], $resume['model_id'] );
+		}
+
 		$system   = $this->build_system_prompt();
 		$loops    = 0;
 		$all_text = '';
@@ -271,13 +326,27 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 				)
 			);
 
-			$response = $this->client->send_messages( $messages, $system, true, $model_preference );
+			$response = $this->client->send_messages(
+				$provider_messages,
+				$system,
+				true,
+				null !== $exact_model ? null : $model_preference,
+				$exact_model
+			);
 			if ( is_wp_error( $response ) ) {
 				return $response;
 			}
 
 			$stop_reason    = $response['stop_reason'] ?? 'end_turn';
 			$content_blocks = $response['content'] ?? array();
+			$continuation   = $response['continuation'] ?? array();
+			$source         = array(
+				(string) ( $response['provider'] ?? '' ),
+				(string) ( $response['model'] ?? '' ),
+			);
+			if ( null === $exact_model && '' !== $source[0] && '' !== $source[1] ) {
+				$exact_model = $source;
+			}
 
 			if ( isset( $response['usage'] ) ) {
 				$prompt_tokens        = (int) $response['usage']['prompt'];
@@ -292,9 +361,10 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 				$usage['model'] = $response['model'];
 			}
 
-			$tool_results    = array();
-			$pending_payload = null;
-			$text_before     = $all_text;
+			$pre_tool_results  = array();
+			$post_tool_results = array();
+			$pending_payload   = null;
+			$text_before       = $all_text;
 
 			foreach ( $content_blocks as $block ) {
 				if ( 'text' === $block['type'] ) {
@@ -345,7 +415,7 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 					$result = 'Error: ' . $outcome->get_error_message();
 				} elseif ( 'action_proposal' === $outcome['kind'] ) {
 					if ( null !== $pending_payload ) {
-						$tool_results[] = array(
+						$post_tool_results[] = array(
 							'type'        => 'tool_result',
 							'tool_use_id' => $tool_id,
 							'name'        => $tool_name,
@@ -390,19 +460,34 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 						'status'   => $is_error ? 'error' : 'ok',
 					)
 				);
-				$tool_results[] = array(
+				$tool_result = array(
 					'type'        => 'tool_result',
 					'tool_use_id' => $tool_id,
 					'name'        => $tool_name,
 					'content'     => $result,
 				);
+				if ( null === $pending_payload ) {
+					$pre_tool_results[] = $tool_result;
+				} else {
+					$post_tool_results[] = $tool_result;
+				}
 			}
 
-			// Append assistant turn to history.
-			$messages[] = array(
+			// Keep distinct public and provider-private projections of the assistant turn.
+			$assistant_message = array(
 				'role'    => 'assistant',
 				'content' => $content_blocks,
 			);
+			$messages[]        = $assistant_message;
+			$has_continuation  = null !== $exact_model && is_array( $continuation ) && ! empty( $continuation );
+			if ( $has_continuation ) {
+				$assistant_message['continuation'] = $continuation;
+				$provider_messages[]               = $assistant_message;
+			} else {
+				// Incomplete source metadata must never unlock native private replay.
+				$exact_model       = null;
+				$provider_messages = Haydi_AI_Client::portable_provider_history( $messages );
+			}
 
 			if ( $all_text !== $text_before ) {
 				$this->emit_chat_event(
@@ -414,16 +499,44 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 
 			// Surface the pending action (if any) for human approval.
 			if ( null !== $pending_payload ) {
-				$pending_payload['pre_results'] = $tool_results;
-				return array(
+				$pending_payload['pre_results']  = $pre_tool_results;
+				$pending_payload['post_results'] = $post_tool_results;
+				$payload                         = array(
 					'text'           => $all_text,
 					'messages'       => $messages,
 					'usage'          => $usage,
 					'activity'       => $activity,
 					'pending_action' => $pending_payload,
 				);
+
+				if ( $has_continuation && null !== $exact_model ) {
+					$resume_tool_ids = array();
+					foreach ( $pre_tool_results as $tool_result ) {
+						$resume_tool_ids[] = (string) ( $tool_result['tool_use_id'] ?? '' );
+					}
+					$resume_tool_ids[] = (string) $pending_payload['tool_use_id'];
+					foreach ( $post_tool_results as $tool_result ) {
+						$resume_tool_ids[] = (string) ( $tool_result['tool_use_id'] ?? '' );
+					}
+					$handle = $this->continuation_store->create(
+						get_current_user_id(),
+						$exact_model[0],
+						$exact_model[1],
+						$resume_tool_ids,
+						$messages,
+						$provider_messages
+					);
+					if ( is_string( $handle ) ) {
+						$payload['continuation_handle'] = $handle;
+					} elseif ( is_wp_error( $handle ) ) {
+						$payload['continuation_warning'] = 'Provider-private continuation could not be stored. This action will resume using portable history.';
+					}
+				}
+
+				return $payload;
 			}
 
+			$tool_results = array_merge( $pre_tool_results, $post_tool_results );
 			if ( 'end_turn' === $stop_reason || empty( $tool_results ) ) {
 				return array(
 					'text'     => $all_text,
@@ -434,13 +547,62 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 			}
 
 			// Feed tool results back and loop.
-			$messages[] = array(
+			$tool_message = array(
 				'role'    => 'user',
 				'content' => $tool_results,
 			);
+			$messages[]   = $tool_message;
+			if ( $has_continuation ) {
+				$provider_messages[] = $tool_message;
+			} else {
+				$provider_messages = Haydi_AI_Client::portable_provider_history( $messages );
+			}
 		}
 
 		return new WP_Error( 'max_loop_reached', 'Reached the maximum number of tool-call iterations.' );
+	}
+
+	/**
+	 * Consume and reconstruct a paused Provider Continuation from one new Tool-result turn.
+	 */
+	private function resume_provider_continuation( string $handle, array $messages ): array|WP_Error {
+		if ( count( $messages ) < 2 ) {
+			return new WP_Error( 'provider_continuation_invalid', 'Provider continuation is missing its Tool result.' );
+		}
+
+		$user_message = $messages[ count( $messages ) - 1 ];
+		if ( 'user' !== ( $user_message['role'] ?? '' ) || ! is_array( $user_message['content'] ?? null ) ) {
+			return new WP_Error( 'provider_continuation_invalid', 'Provider continuation must resume with Tool results.' );
+		}
+
+		$tool_call_ids = array();
+		foreach ( $user_message['content'] as $block ) {
+			if ( is_array( $block ) && 'tool_result' === ( $block['type'] ?? '' ) ) {
+				$tool_call_ids[] = (string) ( $block['tool_use_id'] ?? '' );
+			}
+		}
+		if ( empty( $tool_call_ids ) ) {
+			return new WP_Error( 'provider_continuation_invalid', 'Provider continuation must resolve its Tool calls.' );
+		}
+
+		$prefix = array_slice( $messages, 0, -1 );
+		$resume = $this->continuation_store->consume(
+			$handle,
+			get_current_user_id(),
+			$tool_call_ids,
+			$prefix
+		);
+		if ( is_wp_error( $resume ) || ! is_array( $resume['continuation'] ?? null ) ) {
+			return is_wp_error( $resume )
+				? $resume
+				: new WP_Error( 'provider_continuation_invalid', 'Stored provider continuation is invalid.' );
+		}
+
+		$resume['messages']   = $resume['continuation'];
+		$resume['messages'][] = $user_message;
+		unset( $resume['continuation'] );
+
+		return $resume;
 	}
 
 	/**
@@ -514,6 +676,7 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 		if ( ! is_array( $messages ) || empty( $messages ) ) {
 			wp_send_json_error( array( 'message' => 'messages array is required.' ) );
 		}
+		$messages         = Haydi_AI_Client::sanitize_public_transcript( $messages );
 		$model_preference = $this->get_model_preference_from_request();
 
 		$summary_input = wp_json_encode( $messages );

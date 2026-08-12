@@ -27,6 +27,7 @@ require_once HAYDI_DIR . 'includes/class-jetpack-context.php';
 require_once HAYDI_DIR . 'includes/class-model-limits.php';
 require_once HAYDI_DIR . 'includes/class-tool-catalog.php';
 require_once HAYDI_DIR . 'includes/class-ai-client.php';
+require_once HAYDI_DIR . 'includes/class-provider-continuation-store.php';
 require_once HAYDI_DIR . 'includes/tools/class-ajax-tool-base.php';
 require_once HAYDI_DIR . 'includes/tools/class-file-tool.php';
 require_once HAYDI_DIR . 'includes/tools/class-plugin-tool.php';
