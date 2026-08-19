@@ -2,8 +2,10 @@
 /**
  * Haydi REST API — exposes all Haydi tools over the WordPress REST API.
  *
- * Authentication: Bearer token (generated in WP-Admin → Haydi → Remote Access)
- * or an active WordPress session with the configured Haydi access capability.
+ * Authentication: Bearer token only, generated in WP-Admin → Haydi → Remote
+ * Access. An active WordPress session is not sufficient on its own — the
+ * token is the explicit, auditable act that stands in for the human
+ * approval click the chat UI requires for the same operations.
  *
  * All write/execute operations are performed immediately when called via the
  * REST API — the token itself acts as the approval gate, equivalent to a
@@ -167,7 +169,7 @@ class Haydi_Rest_Api {
 	// -------------------------------------------------------------------------
 
 	/**
-	 * Verify a Bearer token or an authorized active WordPress session.
+	 * Verify a valid Bearer token. A WordPress session alone is not enough.
 	 */
 	public function check_permission( WP_REST_Request $request ): bool {
 		return haydi_is_authorized_api_request( $request );

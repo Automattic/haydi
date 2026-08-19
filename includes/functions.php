@@ -14,14 +14,17 @@ $GLOBALS['haydi_action_proposals'] = array();
 /**
  * Return the WordPress capability required to use Haydi.
  *
- * Editors and Administrators have edit_others_posts by default. Sites may
- * replace it with a stricter custom capability when they need a different
- * access policy.
+ * Administrators have manage_options by default. Haydi's tools (run_php,
+ * SQL, arbitrary plugin/theme file read) are equivalent to code execution,
+ * so the floor is deliberately Administrator rather than Editor — an Editor
+ * granted access could use run_php to grant themselves manage_options
+ * anyway, so a lower floor is not a meaningful boundary. Sites may still
+ * replace it with a custom capability when they need a different policy.
  *
  * @return string
  */
 function haydi_get_access_capability(): string {
-	$default    = 'edit_others_posts';
+	$default    = 'manage_options';
 	$capability = apply_filters( 'haydi_access_capability', $default );
 
 	return is_string( $capability ) && '' !== trim( $capability )
@@ -102,8 +105,15 @@ function haydi_get_action_proposals(): array {
 }
 
 /**
- * Check whether the current REST request is authorized via Bearer token or
- * the configured Haydi access capability.
+ * Check whether the current REST request is authorized via Bearer token.
+ *
+ * REST/MCP access is deliberately gated on possession of a token (minted
+ * from the WP-Admin sidebar) rather than the caller's WordPress capability:
+ * a token is the explicit, auditable act that stands in for the human
+ * approval click the chat UI requires for the same operations. Falling back
+ * to current_user_can() here would let any session holding the Haydi access
+ * capability reach approval-gated tools (e.g. run_php's eval()) over the API
+ * with no approval step at all.
  *
  * @param WP_REST_Request $request Incoming REST request.
  * @return bool
@@ -126,9 +136,7 @@ function haydi_is_authorized_api_request( WP_REST_Request $request ): bool {
 	}
 	if ( $auth && str_starts_with( $auth, 'Bearer ' ) ) {
 		$token = trim( substr( $auth, 7 ) );
-		if ( $token_manager->validate_token( $token ) ) {
-			return true;
-		}
+		return $token_manager->validate_token( $token );
 	}
-	return haydi_current_user_can_access();
+	return false;
 }

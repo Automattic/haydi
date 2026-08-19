@@ -19,21 +19,29 @@ final class AccessControlTest extends TestCase {
 		parent::tearDown();
 	}
 
-	public function test_editor_capability_grants_access_by_default(): void {
+	public function test_administrator_capability_grants_access_by_default(): void {
 		$checked_capability = null;
 
 		Functions\when( 'current_user_can' )->alias(
 			static function ( string $capability ) use ( &$checked_capability ): bool {
 				$checked_capability = $capability;
-				return 'edit_others_posts' === $capability;
+				return 'manage_options' === $capability;
 			}
 		);
 
 		$this->assertTrue( haydi_current_user_can_access() );
-		$this->assertSame( 'edit_others_posts', $checked_capability );
+		$this->assertSame( 'manage_options', $checked_capability );
 	}
 
-	public function test_user_without_editor_capability_is_denied(): void {
+	public function test_editor_is_denied_by_default(): void {
+		Functions\when( 'current_user_can' )->alias(
+			static fn( string $capability ): bool => 'edit_others_posts' === $capability
+		);
+
+		$this->assertFalse( haydi_current_user_can_access() );
+	}
+
+	public function test_user_without_manage_options_is_denied(): void {
 		Functions\when( 'current_user_can' )->justReturn( false );
 
 		$this->assertFalse( haydi_current_user_can_access() );

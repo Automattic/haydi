@@ -241,8 +241,8 @@ class RestApiMcpTest extends TestCase {
 		$this->assertTrue( $result );
 	}
 
-	public function test_check_permission_with_invalid_token_falls_back_to_current_user_can(): void {
-		Functions\when( 'current_user_can' )->justReturn( false );
+	public function test_check_permission_with_invalid_token_is_denied_even_for_an_editor(): void {
+		Functions\when( 'current_user_can' )->justReturn( true );
 
 		$req = new WP_REST_Request();
 		$req->set_header( 'Authorization', 'Bearer ' . str_repeat( 'a', 64 ) );
@@ -252,7 +252,7 @@ class RestApiMcpTest extends TestCase {
 		$this->assertFalse( $result );
 	}
 
-	public function test_check_permission_with_no_auth_header_accepts_an_editor_session(): void {
+	public function test_check_permission_with_no_auth_header_denies_an_editor_session(): void {
 		Functions\when( 'current_user_can' )->alias(
 			static fn( string $capability ): bool => 'edit_others_posts' === $capability
 		);
@@ -260,7 +260,7 @@ class RestApiMcpTest extends TestCase {
 		$req    = new WP_REST_Request();
 		$result = $this->api->check_permission( $req );
 
-		$this->assertTrue( $result );
+		$this->assertFalse( $result );
 	}
 
 	public function test_check_permission_falls_back_to_server_http_authorization(): void {

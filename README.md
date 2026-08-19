@@ -34,25 +34,27 @@ You can also launch the assistant from anywhere in WP-Admin via the command pale
 
 ### Access control
 
-By default, users with WordPress's `edit_others_posts` capability can use
-Haydi. On a standard installation that means Editors and Administrators, but
-not Authors, Contributors, or Subscribers.
+By default, only users with WordPress's `manage_options` capability
+(Administrators) can use Haydi.
 
-Haydi's access capability is filterable when a site needs a stricter policy:
+Haydi includes tools that can modify files, run SQL and PHP, and change
+plugin state — `run_php` in particular can be used to grant the calling user
+any capability, including `manage_options` itself, so a lower floor is not a
+meaningful boundary. Mutating actions still require approval in the browser,
+but that approval comes from the same user who already has full access.
+
+Haydi's access capability is filterable if a site wants to open access to
+non-administrators anyway:
 
 ```php
-add_filter( 'haydi_access_capability', static fn() => 'manage_options' );
+add_filter( 'haydi_access_capability', static fn() => 'edit_others_posts' );
 ```
 
-Haydi includes tools that can modify files, run SQL and PHP, and change plugin
-state. Granting access therefore gives a user substantial control over the
-site, even though mutating actions require approval in the browser.
-
-Administrators can also control model choice under **Settings → Haydi**. The
-default lets Editors choose any configured model; selecting a specific model
-fixes and disables the picker for Editors while Administrators retain the full
-picker. This is a browser-interface policy only and does not add model
-authorization to REST or MCP requests.
+If you do, use **Settings → Haydi** to restrict which model
+non-administrators can pick. The default lets them choose any configured
+model; selecting a specific model fixes and disables their picker, while
+Administrators retain the full picker. This is a browser-interface policy
+only and does not add model authorization to REST or MCP requests.
 
 ### Remote Access (MCP / REST API)
 
@@ -197,7 +199,7 @@ The AI calls `list_backups` to find available backups for that file, presents wh
 
 | Control | Detail |
 |---|---|
-| Auth | Configured Haydi access capability (`edit_others_posts` by default) + nonce on every browser request |
+| Auth | Configured Haydi access capability (`manage_options` by default) + nonce on every browser request |
 | Path isolation | `realpath()` + allowlist on every read/write; nothing above ABSPATH |
 | Extension allowlist | `.php .css .js .json .txt .md .html` only |
 | File size cap | 512 KB reads/writes |
