@@ -45,10 +45,11 @@ which is why the plugin does not offer a way to open access to lower roles.
 Mutating actions still require approval in the browser, but that approval
 comes from the same user who already has full access.
 
-The model picker under **Settings → Haydi** pins the chat model for
-non-administrator users. Since Haydi access is administrator-only, this
-setting currently has no effect; it is retained in case a future release
-reintroduces broader access.
+Under **Settings → Haydi**, the chat interface can be pinned to one model.
+This is useful to keep usage on a model whose cost and behavior you have
+vetted, and to prevent accidentally running chats on the wrong one. It is a
+browser-interface policy only and does not add model authorization to REST
+or MCP requests.
 
 ### Remote Access (MCP / REST API)
 

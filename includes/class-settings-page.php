@@ -43,8 +43,8 @@ final class Haydi_Settings_Page {
 			Haydi_Model_Policy::OPTION_NAME,
 			array(
 				'type'              => 'string',
-				'label'             => __( 'Editor model', 'haydi' ),
-				'description'       => __( 'Optionally restrict the model picker for Editors and other non-administrator Haydi users.', 'haydi' ),
+				'label'             => __( 'Chat model', 'haydi' ),
+				'description'       => __( 'Optionally pin the Haydi chat interface to one model.', 'haydi' ),
 				'sanitize_callback' => array( $this, 'sanitize_editor_model' ),
 				'default'           => '',
 			)
@@ -59,7 +59,7 @@ final class Haydi_Settings_Page {
 
 		add_settings_field(
 			Haydi_Model_Policy::OPTION_NAME,
-			__( 'Editor model', 'haydi' ),
+			__( 'Chat model', 'haydi' ),
 			array( $this, 'render_editor_model_field' ),
 			self::PAGE_SLUG,
 			self::MODEL_SECTION
@@ -96,7 +96,7 @@ final class Haydi_Settings_Page {
 	 */
 	public function render_model_section(): void {
 		echo '<p>';
-		esc_html_e( 'Choose whether Editors may select any configured model or always use one administrator-selected model in Haydi.', 'haydi' );
+		esc_html_e( 'Choose whether Haydi users may select any configured model, or always use one pinned model — useful to keep chat on a model whose cost and behavior you have vetted.', 'haydi' );
 		echo '</p>';
 	}
 
@@ -112,7 +112,7 @@ final class Haydi_Settings_Page {
 			: null;
 		?>
 		<select name="<?php echo esc_attr( Haydi_Model_Policy::OPTION_NAME ); ?>" id="<?php echo esc_attr( Haydi_Model_Policy::OPTION_NAME ); ?>">
-			<option value=""<?php selected( '', $current ); ?>><?php esc_html_e( 'Allow Editors to choose any configured model', 'haydi' ); ?></option>
+			<option value=""<?php selected( '', $current ); ?>><?php esc_html_e( 'Allow any configured model', 'haydi' ); ?></option>
 			<?php if ( null !== $stored && null === $found ) : ?>
 				<option value="<?php echo esc_attr( $current ); ?>" selected>
 					<?php /* translators: 1: AI provider ID, 2: AI model ID. */ ?>

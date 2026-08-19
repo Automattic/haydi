@@ -91,11 +91,15 @@ final class Haydi_Model_Policy {
 
 	/**
 	 * Build browser configuration for the current user's model picker.
+	 *
+	 * A configured model pins the picker for every user, administrators
+	 * included: the setting exists to prevent costly or unsuitable model
+	 * choices in chat, and an administrator who wants a different model can
+	 * change the setting itself under Settings → Haydi.
 	 */
 	public static function picker_config( array $choices ): array {
 		$editor_model = self::get_editor_model();
-		$is_admin     = current_user_can( 'manage_options' );
-		$restricted   = null !== $editor_model && ! $is_admin;
+		$restricted   = null !== $editor_model;
 
 		$config = array(
 			'restricted' => $restricted,

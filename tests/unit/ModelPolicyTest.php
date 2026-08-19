@@ -19,11 +19,10 @@ final class ModelPolicyTest extends TestCase {
 		parent::tearDown();
 	}
 
-	public function test_editor_gets_the_configured_model_as_a_restricted_picker(): void {
+	public function test_configured_model_pins_the_picker_for_every_user(): void {
 		Functions\when( 'get_option' )->justReturn(
 			Haydi_Model_Policy::encode( 'anthropic', 'claude-sonnet-4-6' )
 		);
-		Functions\when( 'current_user_can' )->justReturn( false );
 
 		$config = Haydi_Model_Policy::picker_config( $this->choices() );
 
@@ -34,21 +33,8 @@ final class ModelPolicyTest extends TestCase {
 		$this->assertSame( 'Claude Sonnet 4.6', $config['label'] );
 	}
 
-	public function test_administrator_keeps_the_full_picker(): void {
-		Functions\when( 'get_option' )->justReturn(
-			Haydi_Model_Policy::encode( 'anthropic', 'claude-sonnet-4-6' )
-		);
-		Functions\when( 'current_user_can' )->justReturn( true );
-
-		$config = Haydi_Model_Policy::picker_config( $this->choices() );
-
-		$this->assertFalse( $config['restricted'] );
-		$this->assertSame( 'claude-sonnet-4-6', $config['model'] );
-	}
-
-	public function test_editor_keeps_the_full_picker_when_no_model_is_configured(): void {
+	public function test_full_picker_when_no_model_is_configured(): void {
 		Functions\when( 'get_option' )->justReturn( '' );
-		Functions\when( 'current_user_can' )->justReturn( false );
 
 		$config = Haydi_Model_Policy::picker_config( $this->choices() );
 
@@ -57,11 +43,10 @@ final class ModelPolicyTest extends TestCase {
 		$this->assertSame( '', $config['model'] );
 	}
 
-	public function test_stale_editor_model_is_reported_as_unavailable(): void {
+	public function test_stale_pinned_model_is_reported_as_unavailable(): void {
 		Functions\when( 'get_option' )->justReturn(
 			Haydi_Model_Policy::encode( 'anthropic', 'claude-retired' )
 		);
-		Functions\when( 'current_user_can' )->justReturn( false );
 
 		$config = Haydi_Model_Policy::picker_config( $this->choices() );
 
@@ -72,7 +57,6 @@ final class ModelPolicyTest extends TestCase {
 
 	public function test_malformed_stored_model_is_treated_as_no_policy(): void {
 		Functions\when( 'get_option' )->justReturn( '{"provider":"anthropic","model":[]}' );
-		Functions\when( 'current_user_can' )->justReturn( false );
 
 		$this->assertFalse( Haydi_Model_Policy::picker_config( $this->choices() )['restricted'] );
 	}

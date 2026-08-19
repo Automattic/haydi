@@ -63,7 +63,7 @@ Only Administrators (users with the `manage_options` capability) can use Haydi. 
 
 = What does the model setting under Settings → Haydi do? =
 
-It pins the chat model for non-administrator users. Since Haydi access is administrator-only, the setting currently has no effect; it is retained in case a future release reintroduces broader access.
+It pins the Haydi chat interface to one model — useful to keep usage on a model whose cost and behavior you have vetted, and to avoid accidentally running chats on the wrong one. It controls the browser interface only and does not enforce a model restriction on REST or MCP requests.
 
 = Does it work without Jetpack? =
 
