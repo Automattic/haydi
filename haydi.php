@@ -165,7 +165,7 @@ final class Haydi_Plugin {
 			'tools.php',
 			'Haydi',
 			'Haydi',
-			haydi_get_access_capability(),
+			'manage_options',
 			'haydi',
 			array( $this, 'render_main_page' )
 		);
@@ -173,7 +173,7 @@ final class Haydi_Plugin {
 			null,
 			'Haydi Audit Log',
 			'Haydi Audit Log',
-			haydi_get_access_capability(),
+			'manage_options',
 			'haydi-audit-log',
 			array( $this, 'render_audit_log_page' )
 		);

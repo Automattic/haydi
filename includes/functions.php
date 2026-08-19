@@ -12,31 +12,16 @@ defined( 'ABSPATH' ) || exit;
 $GLOBALS['haydi_action_proposals'] = array();
 
 /**
- * Return the WordPress capability required to use Haydi.
- *
- * Administrators have manage_options by default. Haydi's tools (run_php,
- * SQL, arbitrary plugin/theme file read) are equivalent to code execution,
- * so the floor is deliberately Administrator rather than Editor — an Editor
- * granted access could use run_php to grant themselves manage_options
- * anyway, so a lower floor is not a meaningful boundary. Sites may still
- * replace it with a custom capability when they need a different policy.
- *
- * @return string
- */
-function haydi_get_access_capability(): string {
-	$default    = 'manage_options';
-	$capability = apply_filters( 'haydi_access_capability', $default );
-
-	return is_string( $capability ) && '' !== trim( $capability )
-		? $capability
-		: $default;
-}
-
-/**
  * Check whether the current WordPress user may use Haydi.
+ *
+ * The manage_options requirement is deliberately not filterable. Haydi's
+ * tools (run_php, SQL, arbitrary plugin/theme file read) are equivalent to
+ * code execution, so any user admitted here can grant themselves
+ * manage_options anyway — a lower floor is not a meaningful boundary, and
+ * offering one as a hook only invites insecure configurations.
  */
 function haydi_current_user_can_access(): bool {
-	return current_user_can( haydi_get_access_capability() );
+	return current_user_can( 'manage_options' );
 }
 
 /**

@@ -34,27 +34,21 @@ You can also launch the assistant from anywhere in WP-Admin via the command pale
 
 ### Access control
 
-By default, only users with WordPress's `manage_options` capability
-(Administrators) can use Haydi.
+Only users with WordPress's `manage_options` capability (Administrators) can
+use Haydi. This is not configurable.
 
 Haydi includes tools that can modify files, run SQL and PHP, and change
 plugin state — `run_php` in particular can be used to grant the calling user
-any capability, including `manage_options` itself, so a lower floor is not a
-meaningful boundary. Mutating actions still require approval in the browser,
-but that approval comes from the same user who already has full access.
+any capability, including `manage_options` itself. Any user admitted to
+Haydi is therefore an administrator in practice, whatever their role says,
+which is why the plugin does not offer a way to open access to lower roles.
+Mutating actions still require approval in the browser, but that approval
+comes from the same user who already has full access.
 
-Haydi's access capability is filterable if a site wants to open access to
-non-administrators anyway:
-
-```php
-add_filter( 'haydi_access_capability', static fn() => 'edit_others_posts' );
-```
-
-If you do, use **Settings → Haydi** to restrict which model
-non-administrators can pick. The default lets them choose any configured
-model; selecting a specific model fixes and disables their picker, while
-Administrators retain the full picker. This is a browser-interface policy
-only and does not add model authorization to REST or MCP requests.
+The model picker under **Settings → Haydi** pins the chat model for
+non-administrator users. Since Haydi access is administrator-only, this
+setting currently has no effect; it is retained in case a future release
+reintroduces broader access.
 
 ### Remote Access (MCP / REST API)
 

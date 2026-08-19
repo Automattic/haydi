@@ -59,13 +59,11 @@ Any provider available through the WordPress Connectors API (WordPress 7.0+). Th
 
 = Who can use Haydi? =
 
-By default, only Administrators can use Haydi. Developers can change the required capability with the `haydi_access_capability` filter — for example to admit Editors, add `add_filter( 'haydi_access_capability', fn() => 'edit_others_posts' );`.
+Only Administrators (users with the `manage_options` capability) can use Haydi. This is not configurable: Haydi can modify files, run SQL and PHP, and change plugin state — including granting the calling user any WordPress capability — so anyone admitted to Haydi is an administrator in practice, and the plugin does not offer a way to open access to lower roles.
 
-Haydi can modify files, run SQL and PHP, and change plugin state — including granting the calling user any WordPress capability, so a lower floor than Administrator is not a meaningful restriction on its own. Only grant access to trusted users, even though browser mutations require explicit approval by default.
+= What does the model setting under Settings → Haydi do? =
 
-= Can administrators restrict which model non-administrators use? =
-
-Yes, for sites that widen access with the `haydi_access_capability` filter. Go to Settings → Haydi and select a model for non-administrators. The default lets them choose any configured model; selecting one fixes and disables their picker while Administrators retain the full picker. This controls the browser interface only and does not enforce a model restriction on REST or MCP requests.
+It pins the chat model for non-administrator users. Since Haydi access is administrator-only, the setting currently has no effect; it is retained in case a future release reintroduces broader access.
 
 = Does it work without Jetpack? =
 
