@@ -2,9 +2,9 @@
 /**
  * Unit tests for Haydi_Api_Token_Manager.
  *
- * WordPress functions (get_option, update_option, sanitize_text_field, __)
- * are stubbed via Brain\Monkey. An in-memory store backs the option calls so
- * generate → validate → list → revoke round-trips work without a live DB.
+ * WordPress functions are stubbed via Brain\Monkey. An in-memory store backs
+ * the option calls so issuer-bound generate → validate → list → revoke
+ * round-trips work without a live DB.
  */
 
 use PHPUnit\Framework\TestCase;
@@ -38,6 +38,14 @@ class ApiTokenManagerTest extends TestCase {
 
 		// Pass-through sanitisers.
 		Functions\when( 'sanitize_text_field' )->returnArg();
+		Functions\when( 'get_current_user_id' )->justReturn( 7 );
+		Functions\when( 'user_can' )->alias(
+			static fn( int $user_id, string $capability ): bool => 7 === $user_id
+				&& in_array( $capability, array( 'edit_plugins', 'manage_options' ), true )
+		);
+		Functions\when( 'apply_filters' )->alias(
+			static fn( string $hook, $value ) => $value
+		);
 
 		// __ translation helper.
 		Functions\when( '__' )->alias(
@@ -71,6 +79,14 @@ class ApiTokenManagerTest extends TestCase {
 		$this->assertTrue( $mgr->validate_token( $token ) );
 	}
 
+	public function test_generated_token_is_bound_to_its_issuer(): void {
+		$mgr   = new Haydi_Api_Token_Manager();
+		$token = $mgr->generate_token( 'issuer-test' );
+		$hash  = hash( 'sha256', $token );
+
+		$this->assertSame( 7, $this->options[ Haydi_Api_Token_Manager::OPTION_KEY ][ $hash ]['user_id'] );
+	}
+
 	// -------------------------------------------------------------------------
 	// validate_token() — rejection cases
 	// -------------------------------------------------------------------------
@@ -89,6 +105,48 @@ class ApiTokenManagerTest extends TestCase {
 		$mgr = new Haydi_Api_Token_Manager();
 		// Do not call generate_token() — option store is empty.
 		$this->assertFalse( $mgr->validate_token( str_repeat( 'a', 64 ) ) );
+	}
+
+	public function test_legacy_token_without_an_issuer_is_rejected(): void {
+		$token = str_repeat( 'a', 64 );
+		$hash  = hash( 'sha256', $token );
+		$this->options[ Haydi_Api_Token_Manager::OPTION_KEY ] = array(
+			$hash => array(
+				'label'   => 'Legacy',
+				'prefix'  => substr( $token, 0, 8 ),
+				'created' => time(),
+			),
+		);
+
+		$this->assertFalse( ( new Haydi_Api_Token_Manager() )->validate_token( $token ) );
+	}
+
+	public function test_token_is_rejected_after_issuer_loses_code_editing_access(): void {
+		$issuer_allowed = true;
+		Functions\when( 'user_can' )->alias(
+			static function ( int $user_id, string $capability ) use ( &$issuer_allowed ): bool {
+				return 7 === $user_id
+					&& $issuer_allowed
+					&& in_array( $capability, array( 'edit_plugins', 'manage_options' ), true );
+			}
+		);
+		$mgr   = new Haydi_Api_Token_Manager();
+		$token = $mgr->generate_token( 'revoked-with-capability' );
+
+		$this->assertTrue( $mgr->validate_token( $token ) );
+		$issuer_allowed = false;
+		$this->assertFalse( $mgr->validate_token( $token ) );
+	}
+
+	public function test_token_is_rejected_when_issuer_has_manage_options_without_edit_plugins(): void {
+		Functions\when( 'user_can' )->alias(
+			static fn( int $user_id, string $capability ): bool => 7 === $user_id
+				&& 'manage_options' === $capability
+		);
+		$mgr   = new Haydi_Api_Token_Manager();
+		$token = $mgr->generate_token( 'multisite-site-admin' );
+
+		$this->assertFalse( $mgr->validate_token( $token ) );
 	}
 
 	// -------------------------------------------------------------------------

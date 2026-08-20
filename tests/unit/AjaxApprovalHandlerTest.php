@@ -158,6 +158,61 @@ final class AjaxApprovalHandlerTest extends TestCase {
 		$this->assertSame( array( 'message' => 'arguments must be a JSON object.' ), $this->data );
 	}
 
+	public function test_multisite_site_administrator_cannot_execute_run_php_directly(): void {
+		$executed = false;
+		Functions\when( 'current_user_can' )->alias(
+			static fn( string $capability ): bool => 'manage_options' === $capability
+		);
+		$handler = new Haydi_Ajax_Handlers(
+			$this->approval_catalog(
+				static function () use ( &$executed ): array {
+					$executed = true;
+					return array( 'message' => 'PHP executed.' );
+				},
+				'run_php'
+			)
+		);
+
+		$this->invoke(
+			$handler,
+			array(
+				'tool_name' => 'run_php',
+				'arguments' => '{"code":"grant_super_admin(1);","reason":"test"}',
+			)
+		);
+
+		$this->assertFalse( $this->success );
+		$this->assertSame( array( 'message' => 'Permission denied.' ), $this->data );
+		$this->assertFalse( $executed );
+	}
+
+	public function test_multisite_site_administrator_cannot_generate_an_api_token(): void {
+		$option_updated = false;
+		Functions\when( 'current_user_can' )->alias(
+			static fn( string $capability ): bool => 'manage_options' === $capability
+		);
+		Functions\when( 'update_option' )->alias(
+			static function () use ( &$option_updated ): bool {
+				$option_updated = true;
+				return true;
+			}
+		);
+		$handler         = new Haydi_Ajax_Handlers( $this->approval_catalog( static fn(): string => 'unused' ) );
+		$this->success   = null;
+		$this->data      = null;
+		$_POST           = array( 'nonce' => 'test', 'label' => 'attacker token' );
+
+		try {
+			$handler->handle_generate_token();
+		} catch ( HaydiTestHaltException $exception ) {
+			unset( $exception );
+		}
+
+		$this->assertFalse( $this->success );
+		$this->assertSame( array( 'message' => 'Permission denied.' ), $this->data );
+		$this->assertFalse( $option_updated );
+	}
+
 	private function invoke( Haydi_Ajax_Handlers $handler, array $post ): void {
 		$this->success = null;
 		$this->data    = null;
@@ -170,11 +225,11 @@ final class AjaxApprovalHandlerTest extends TestCase {
 		}
 	}
 
-	private function approval_catalog( callable $implementation ): Haydi_Tool_Catalog {
+	private function approval_catalog( callable $implementation, string $name = 'clear_cache' ): Haydi_Tool_Catalog {
 		$catalog = new Haydi_Tool_Catalog();
 		$catalog->register(
 			array(
-				'name'         => 'clear_cache',
+				'name'         => $name,
 				'description'  => 'Clear the cache after approval.',
 				'input_schema' => array(
 					'type'       => 'object',

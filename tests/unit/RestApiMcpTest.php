@@ -49,6 +49,11 @@ class RestApiMcpTest extends TestCase {
 		Functions\when( '__' )->alias( static function ( string $text ) { return $text; } );
 		Functions\when( 'wp_json_encode' )->alias( 'json_encode' );
 		Functions\when( 'wp_is_file_mod_allowed' )->justReturn( true );
+		Functions\when( 'get_current_user_id' )->justReturn( 7 );
+		Functions\when( 'user_can' )->alias(
+			static fn( int $user_id, string $capability ): bool => 7 === $user_id
+				&& in_array( $capability, array( 'edit_plugins', 'manage_options' ), true )
+		);
 		Functions\when( 'apply_filters' )->alias(
 			static function ( string $hook, $value, ...$args ) {
 				unset( $hook, $args );
@@ -250,6 +255,31 @@ class RestApiMcpTest extends TestCase {
 		$result = $this->api->check_permission( $req );
 
 		$this->assertFalse( $result );
+	}
+
+	public function test_check_permission_denies_token_after_issuer_loses_code_editing_access(): void {
+		$mgr   = new Haydi_Api_Token_Manager();
+		$token = $mgr->generate_token( 'former-admin' );
+		Functions\when( 'user_can' )->justReturn( false );
+
+		$req = new WP_REST_Request();
+		$req->set_header( 'Authorization', "Bearer {$token}" );
+
+		$this->assertFalse( $this->api->check_permission( $req ) );
+	}
+
+	public function test_check_permission_denies_token_from_multisite_site_administrator(): void {
+		Functions\when( 'user_can' )->alias(
+			static fn( int $user_id, string $capability ): bool => 7 === $user_id
+				&& 'manage_options' === $capability
+		);
+		$mgr   = new Haydi_Api_Token_Manager();
+		$token = $mgr->generate_token( 'site-admin' );
+
+		$req = new WP_REST_Request();
+		$req->set_header( 'Authorization', "Bearer {$token}" );
+
+		$this->assertFalse( $this->api->check_permission( $req ) );
 	}
 
 	public function test_check_permission_with_no_auth_header_denies_an_editor_session(): void {

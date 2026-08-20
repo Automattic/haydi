@@ -5,8 +5,9 @@
  * the Haydi REST API without a browser session.
  *
  * Tokens are stored hashed (SHA-256) in wp_options so the plaintext is never
- * persisted — only shown once on generation. Metadata (label, prefix, created)
- * is stored alongside the hash.
+ * persisted — only shown once on generation. Metadata (label, prefix, created,
+ * issuer) is stored alongside the hash. The issuer's live Haydi access is
+ * rechecked on every validation.
  */
 
 defined( 'ABSPATH' ) || exit;
@@ -23,15 +24,17 @@ class Haydi_Api_Token_Manager {
 	 * @return string The plaintext token (only available at generation time).
 	 */
 	public function generate_token( string $label ): string {
-		$token  = bin2hex( random_bytes( self::TOKEN_BYTES ) );
-		$hash   = hash( 'sha256', $token );
-		$prefix = substr( $token, 0, 8 );
+		$token   = bin2hex( random_bytes( self::TOKEN_BYTES ) );
+		$hash    = hash( 'sha256', $token );
+		$prefix  = substr( $token, 0, 8 );
+		$user_id = get_current_user_id();
 
 		$tokens          = get_option( self::OPTION_KEY, array() );
 		$tokens[ $hash ] = array(
 			'label'   => '' !== sanitize_text_field( $label ) ? sanitize_text_field( $label ) : __( 'Unnamed token', 'haydi' ),
 			'prefix'  => $prefix,
 			'created' => time(),
+			'user_id' => $user_id,
 		);
 		update_option( self::OPTION_KEY, $tokens, false );
 
@@ -45,9 +48,14 @@ class Haydi_Api_Token_Manager {
 		if ( strlen( $token ) !== self::TOKEN_BYTES * 2 ) {
 			return false;
 		}
-		$hash   = hash( 'sha256', $token );
-		$tokens = get_option( self::OPTION_KEY, array() );
-		return isset( $tokens[ $hash ] );
+		$hash     = hash( 'sha256', $token );
+		$tokens   = get_option( self::OPTION_KEY, array() );
+		$metadata = $tokens[ $hash ] ?? null;
+		if ( ! is_array( $metadata ) || ! isset( $metadata['user_id'] ) ) {
+			return false;
+		}
+
+		return haydi_user_can_access( (int) $metadata['user_id'] );
 	}
 
 	/**

@@ -12,14 +12,12 @@ defined( 'ABSPATH' ) || exit;
 $GLOBALS['haydi_action_proposals'] = array();
 
 /**
- * Return the WordPress capability required to use Haydi.
+ * Return the site-configured capability additionally required to use Haydi.
  *
- * Administrators have manage_options by default. Haydi's tools (run_php,
- * SQL, arbitrary plugin/theme file read) are equivalent to code execution,
- * so the floor is deliberately Administrator rather than Editor — an Editor
- * granted access could use run_php to grant themselves manage_options
- * anyway, so a lower floor is not a meaningful boundary. Sites may still
- * replace it with a custom capability when they need a different policy.
+ * The filter may further restrict access, but it cannot lower the hard
+ * edit_plugins floor enforced by haydi_current_user_can_access() and
+ * haydi_user_can_access(). WordPress maps that floor through its file-editing
+ * and multisite protections before Haydi can execute PHP, SQL, or file writes.
  *
  * @return string
  */
@@ -36,7 +34,23 @@ function haydi_get_access_capability(): string {
  * Check whether the current WordPress user may use Haydi.
  */
 function haydi_current_user_can_access(): bool {
-	return current_user_can( haydi_get_access_capability() );
+	return current_user_can( 'edit_plugins' )
+		&& current_user_can( haydi_get_access_capability() );
+}
+
+/**
+ * Check whether a specific WordPress user may use Haydi.
+ *
+ * Used for bearer-token validation, where there is intentionally no logged-in
+ * request user. Rechecking the issuer preserves capability revocation and the
+ * same multisite/file-editing boundary as browser requests.
+ *
+ * @param int $user_id WordPress user ID.
+ */
+function haydi_user_can_access( int $user_id ): bool {
+	return $user_id > 0
+		&& user_can( $user_id, 'edit_plugins' )
+		&& user_can( $user_id, haydi_get_access_capability() );
 }
 
 /**
@@ -107,13 +121,11 @@ function haydi_get_action_proposals(): array {
 /**
  * Check whether the current REST request is authorized via Bearer token.
  *
- * REST/MCP access is deliberately gated on possession of a token (minted
- * from the WP-Admin sidebar) rather than the caller's WordPress capability:
- * a token is the explicit, auditable act that stands in for the human
- * approval click the chat UI requires for the same operations. Falling back
- * to current_user_can() here would let any session holding the Haydi access
- * capability reach approval-gated tools (e.g. run_php's eval()) over the API
- * with no approval step at all.
+ * REST/MCP access is deliberately gated on possession of a token minted from
+ * the WP-Admin sidebar. The token stands in for browser approval, while token
+ * validation rechecks its issuer against Haydi's current capability boundary.
+ * Falling back to the current request user's session would let a browser
+ * session reach approval-gated tools without either form of approval.
  *
  * @param WP_REST_Request $request Incoming REST request.
  * @return bool

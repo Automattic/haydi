@@ -161,11 +161,15 @@ final class Haydi_Plugin {
 	}
 
 	public function add_admin_pages(): void {
+		if ( ! haydi_current_user_can_access() ) {
+			return;
+		}
+
 		$this->plugin_screens[] = add_submenu_page(
 			'tools.php',
 			'Haydi',
 			'Haydi',
-			haydi_get_access_capability(),
+			'edit_plugins',
 			'haydi',
 			array( $this, 'render_main_page' )
 		);
@@ -173,7 +177,7 @@ final class Haydi_Plugin {
 			null,
 			'Haydi Audit Log',
 			'Haydi Audit Log',
-			haydi_get_access_capability(),
+			'edit_plugins',
 			'haydi-audit-log',
 			array( $this, 'render_audit_log_page' )
 		);

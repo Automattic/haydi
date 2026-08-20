@@ -34,8 +34,11 @@ You can also launch the assistant from anywhere in WP-Admin via the command pale
 
 ### Access control
 
-By default, only users with WordPress's `manage_options` capability
-(Administrators) can use Haydi.
+Haydi requires WordPress's mapped `edit_plugins` capability as a hard floor,
+plus `manage_options` by default. On a normal single site this admits trusted
+Administrators. On Multisite, core denies `edit_plugins` to ordinary site
+Administrators, so only Super Admins can use Haydi. Core also denies this
+capability when file editing or file modifications are disabled.
 
 Haydi includes tools that can modify files, run SQL and PHP, and change
 plugin state — `run_php` in particular can be used to grant the calling user
@@ -43,18 +46,17 @@ any capability, including `manage_options` itself, so a lower floor is not a
 meaningful boundary. Mutating actions still require approval in the browser,
 but that approval comes from the same user who already has full access.
 
-Haydi's access capability is filterable if a site wants to open access to
-non-administrators anyway:
+The additional capability is filterable when a site needs to restrict access
+further:
 
 ```php
-add_filter( 'haydi_access_capability', static fn() => 'edit_others_posts' );
+add_filter( 'haydi_access_capability', static fn() => 'manage_network_options' );
 ```
 
-If you do, use **Settings → Haydi** to restrict which model
-non-administrators can pick. The default lets them choose any configured
-model; selecting a specific model fixes and disables their picker, while
-Administrators retain the full picker. This is a browser-interface policy
-only and does not add model authorization to REST or MCP requests.
+This filter cannot lower the `edit_plugins` floor. Use **Settings → Haydi** to
+restrict which model non-administrators with code-editing authority can pick.
+This is a browser-interface policy only and does not add model authorization
+to REST or MCP requests.
 
 ### Remote Access (MCP / REST API)
 
@@ -75,7 +77,7 @@ Generate an API token under **Advanced settings** in the Haydi sidebar (Tools �
 
 Claude Code can then use all Haydi tools (`haydi_list_files`, `haydi_list_posts`, `haydi_write_file`, `haydi_run_query`, etc.) as MCP tools — no browser needed.
 
-The same token also works against the REST API directly: `GET /wp-json/haydi/v1/files`, `GET /wp-json/haydi/v1/file`, etc. Write operations execute immediately when authenticated via token; the token is the approval gate.
+The same token also works against the REST API directly: `GET /wp-json/haydi/v1/files`, `GET /wp-json/haydi/v1/file`, etc. Write operations execute immediately when authenticated via token; the token is the approval gate. Tokens are bound to the user who generated them, and that user's Haydi access is rechecked on every request. Tokens created before issuer binding was introduced are invalid and must be regenerated.
 
 `GET /wp-json/haydi/v1/status` returns site info plus an `allowed_roots` array — the same paths exposed by the `haydi_get_allowed_roots` MCP tool — so clients can discover valid write targets without guessing.
 
@@ -199,7 +201,7 @@ The AI calls `list_backups` to find available backups for that file, presents wh
 
 | Control | Detail |
 |---|---|
-| Auth | Configured Haydi access capability (`manage_options` by default) + nonce on every browser request |
+| Auth | WordPress's mapped `edit_plugins` hard floor + configured Haydi capability (`manage_options` by default) + nonce on every browser request |
 | Path isolation | `realpath()` + allowlist on every read/write; nothing above ABSPATH |
 | Extension allowlist | `.php .css .js .json .txt .md .html` only |
 | File size cap | 512 KB reads/writes |
@@ -214,5 +216,5 @@ The AI calls `list_backups` to find available backups for that file, presents wh
 | `run_query` | Full SQL shown before execution; SELECT results capped at 200 rows |
 | `install_plugin` | Slug validated against `^[a-z0-9][a-z0-9-]*$`; downloads only from WordPress.org API |
 | `run_php` | Full code shown before execution; output captured and returned |
-| Remote Access tokens | SHA-256 hash stored; plaintext shown once at generation; revocable from Advanced settings in the sidebar; Bearer token auth on all REST / MCP routes |
+| Remote Access tokens | SHA-256 hash and issuer ID stored; plaintext shown once; issuer access rechecked on every request; revocable from Advanced settings; Bearer token auth on all REST / MCP routes |
 | REST API write ops | Execute immediately when token-authenticated; same guard, health-check, backup, and audit-log machinery as browser-initiated changes |
