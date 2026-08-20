@@ -187,7 +187,7 @@ class Haydi_Rest_Api {
 			array(
 				'site_url'      => get_site_url(),
 				'site_name'     => get_bloginfo( 'name' ),
-				'haydi_version' => '1.2.0',
+				'haydi_version' => '1.2.1',
 				'allowed_roots' => array_values( $this->guard->get_allowed_roots() ),
 			)
 		);
@@ -382,7 +382,7 @@ class Haydi_Rest_Api {
 						),
 						'serverInfo'      => array(
 							'name'    => 'haydi',
-							'version' => '1.2.0',
+							'version' => '1.2.1',
 						),
 					)
 				);

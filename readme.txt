@@ -3,7 +3,7 @@ Contributors: automattic, bor0, raicem
 Tags: ai, automation, assistant, site-management, mcp
 Requires at least: 7.0
 Tested up to: 7.0
-Stable tag: 1.2.0
+Stable tag: 1.2.1
 Requires PHP: 8.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -143,6 +143,11 @@ If you opt in to usage analytics, anonymised event data (actions taken, errors e
 No WordPress-bundled libraries (jQuery, Backbone, lodash, etc.) are duplicated by this plugin.
 
 == Changelog ==
+= 1.2.1 =
+* Released 2026-08-20.
+* Security: the REST and MCP API (`/wp-json/haydi/v1/*`) now requires a valid Bearer token on every request; the fallback to logged-in-user capability checks has been removed. Provision a token from the Haydi settings page to use the API.
+* Security: Haydi's admin page, audit log, and chat access default back to Administrators only (`manage_options`). Sites that want to grant access to other roles can use the `haydi_access_capability` filter; the Editor model restriction setting is preserved for those sites.
+
 = 1.2.0 =
 * Released 2026-08-12.
 * Added secure, provider-neutral continuation across tool calls so approval pauses and follow-up turns retain provider-required state without exposing it in browser or saved chat transcripts.

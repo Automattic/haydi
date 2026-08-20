@@ -3,7 +3,7 @@
  * Plugin Name:       Haydi
  * Plugin URI:        https://github.com/Automattic/haydi
  * Description:       Your AI Autopilot — manage your site directly from WP-Admin using any AI provider.
- * Version:           1.2.0
+ * Version:           1.2.1
  * Author:            Automattic
  * License:           GPL-2.0-or-later
  * Text Domain:       haydi

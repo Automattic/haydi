@@ -778,7 +778,7 @@ test.describe('Haydi_Ajax_Handlers', () => {
         test('GET /status — returns site_url and haydi_version', async () => {
             const res = await rest('GET', '/status', { token: apiToken });
             expect(res).toHaveProperty('site_url');
-            expect(res.haydi_version).toBe('1.2.0');
+            expect(res.haydi_version).toBe('1.2.1');
         });
 
         test('GET /files — returns files array for plugins dir', async () => {
