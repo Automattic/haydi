@@ -11,8 +11,8 @@
  *  - Approval-gated tools (file writes, SQL, PHP, …) are NEVER executed
  *    automatically; the loop pauses and surfaces a "pending_action"
  *    payload that the human must explicitly approve.
- *  - The agentic loop runs server-side so list_files / read_file / fetch_url
- *    / list_plugins results flow back to the AI without a browser round-trip.
+ *  - The agentic loop runs server-side so automatic list/read results flow
+ *    back to the AI without a browser round-trip.
  */
 
 defined( 'ABSPATH' ) || exit;
@@ -155,9 +155,9 @@ class Haydi_Ajax_Handlers extends Haydi_Ajax_Tool_Base {
 	/**
 	 * Run the AI agentic loop server-side.
 	 *
-	 * Read tools (list_files / read_file / fetch_url / list_plugins) execute
-	 * automatically. Approval-gated tools stop the loop and surface a
-	 * pending_action Action Proposal for human approval.
+	 * Automatic read tools (list_files / read_file / list_plugins) execute in
+	 * the loop. Approval-gated tools, including fetch_url, stop the loop and
+	 * surface a pending_action Action Proposal for human approval.
 	 */
 	public function handle_chat(): void {
 		$this->verify();

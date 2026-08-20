@@ -90,21 +90,22 @@ Browser                   PHP (this plugin)           AI Connector (WP Connector
   │                             │                              │
   │── user message ────────────►│                              │
   │                             │── messages + tools ─────────►│
-  │                             │◄── tool_use (fetch/list/read)│
+  │                             │◄── tool_use (list / read)    │
   │                             │   [execute locally]          │
   │                             │── tool_result ──────────────►│
   │                             │  (loop until done or approval needed)
-  │                             │◄── tool_use (write / query / install …)
+  │                             │◄── tool_use (fetch / write / query …)
   │                             │   [NOT executed yet]         │
   │◄── Action Proposal ─────────│                              │
-  │   [one approval card: diff, SQL, PHP, …]                   │
+  │   [one approval card: URL, diff, SQL, PHP, …]              │
   │── "Approve" ────────────────►│                              │
   │                             │   [backup + write / execute] │
   │◄── success ─────────────────│                              │
 ```
 
-`fetch_url`, `list_files`, `read_file`, `search_files`, `list_plugins`, `list_posts`, `list_users`, and `list_options` run automatically.
-Everything that mutates the filesystem, database, or plugin state always pauses for human approval.
+`list_files`, `read_file`, `search_files`, `list_plugins`, `list_posts`, `list_users`, and `list_options` run automatically. In browser chat, `fetch_url` pauses so the user can inspect and approve the exact outbound URL before any request is sent. Everything that mutates the filesystem, database, or plugin state also pauses for human approval.
+
+Token-authenticated MCP and REST requests execute `fetch_url` immediately; the token is the approval gate for those remote transports.
 
 ---
 
@@ -114,7 +115,7 @@ Everything that mutates the filesystem, database, or plugin state always pauses 
 
 | Tool | Auto? | What it does |
 |---|---|---|
-| `fetch_url(url)` | Yes | Fetches a public URL, strips HTML, truncates at 100 KB. Private IPs blocked. |
+| `fetch_url(url)` | **No (browser)** | Shows the exact outbound URL for approval, then fetches it, strips HTML, and truncates at 100 KB. Private IPs are blocked. Token-authenticated MCP/REST calls execute immediately. |
 | `get_allowed_roots()` | Yes | Returns the list of absolute directory paths Haydi is allowed to read/write. Call this before writing files to pick a valid target path. |
 | `list_files(path)` | Yes | Lists files/dirs inside an allowed root. |
 | `read_file(path)` | Yes | Reads a file (max 512 KB). |
@@ -148,8 +149,7 @@ Fetch https://example.com/pricing and create a WordPress plugin that renders
 the same pricing table as a [pricing_table] shortcode.
 ```
 
-The AI fetches the URL, reads the markup, proposes plugin files one at a time.
-You review each diff and click Apply.
+The AI proposes the URL fetch first. After you approve the exact URL, it reads the markup and proposes plugin files one at a time. You review each proposal and click Apply.
 
 ### 2. Modify an existing plugin
 
@@ -212,7 +212,7 @@ The AI calls `list_backups` to find available backups for that file, presents wh
 | Writes/deletes/moves/queries/installs | Require a human click by default. A session-only **Auto-accept** toggle can opt every proposal in until the page is reloaded. |
 | Audit log | All operations logged to `wp_options` |
 | API key | Managed via Settings → Connectors; never sent to browser |
-| `fetch_url` SSRF | Scheme must be `http`/`https`; every A and AAAA record is resolved and validated against private/loopback/link-local ranges; cURL is pinned to those IPs (defeats DNS rebinding); redirects are disabled (would re-resolve DNS); response body capped at 200 KB |
+| `fetch_url` approval + SSRF | Browser chat shows the exact URL and requires approval before sending a request; token-authenticated MCP/REST calls execute immediately. Scheme must be `http`/`https`; every A and AAAA record is resolved and validated against private/loopback/link-local ranges; WordPress Requests is forced to cURL, which is pinned to those IPs, and fails closed if the pinned transport is unavailable or an HTTP proxy would resolve the origin (defeats DNS rebinding); redirects are disabled (would re-resolve DNS); response body capped at 200 KB |
 | `run_query` | Full SQL shown before execution; SELECT results capped at 200 rows |
 | `install_plugin` | Slug validated against `^[a-z0-9][a-z0-9-]*$`; downloads only from WordPress.org API |
 | `run_php` | Full code shown before execution; output captured and returned |

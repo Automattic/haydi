@@ -34,7 +34,7 @@ vendor/bin/phpunit
 |---|---|
 | `IsPrivateIpTest` | `Haydi_Fetch_Url_Tool::is_private_ip()` — IPv4 RFC-1918, loopback, link-local; IPv6 loopback, ULA, IPv4-mapped, link-local; public IPs allowed |
 | `CheckHostForSsrfTest` | `Haydi_Fetch_Url_Tool::resolve_and_validate_host()` — bare private/public IPs, bracketed IPv6, unresolvable `.invalid` TLD |
-| `FetchUrlTest` | `Haydi_Fetch_Url_Tool::fetch()` pre-request validation — malformed URLs, non-http/https scheme, SSRF chain for RFC-1918/loopback/metadata IPs |
+| `FetchUrlTest` | `Haydi_Fetch_Url_Tool::fetch()` pre-request validation — malformed URLs, non-http/https scheme, SSRF chain for RFC-1918/loopback/metadata IPs, cURL transport forcing, Fsockopen/proxy fail-closed behavior, and scoped-hook cleanup |
 | `FilesystemGuardValidateTest` | `validate_path()` + `validate_new_path()` — root acceptance, all allowed extensions, nonexistent paths, disallowed extension, dotfile rejection, paths outside roots |
 | `FilesystemGuardRestoreBackupTest` | `restore_latest_backup()` — newest-first selection, restore from backup, delete-on-no-backup, error paths |
 | `AuditLoggerTest` | `log()` field structure, prepend order, `MAX_ENTRIES=200` trimming; `get_log()` happy path + corrupted-option fallback; `clear_log()` |
@@ -51,7 +51,7 @@ vendor/bin/phpunit
 | `AjaxHandlersLinkingSectionTest` | `Haydi_Ajax_Handlers::build_linking_section` / `build_rule_10` — system-prompt linking guidance across the four `edit_plugins` / `edit_themes` cap combinations (both, plugins-only, themes-only, neither) |
 | `ApiTokenManagerTest` | covers generate/validate/list/revoke token lifecycle; issuer binding and live authorization; legacy, wrong-length, and unrecognized token rejection; independent storage of multiple tokens |
 | `RestApiMcpTest` | covers MCP JSON-RPC routing in `handle_mcp()` — parse error, invalid request, initialize response, ping, tools/list shape, notifications (204), unknown method; Bearer-token permission including issuer capability revocation |
-| `ToolCatalogTest` | canonical chat/MCP inventory, projection aliases, schema validation, approval policy, dispatch, and additive legacy compatibility |
+| `ToolCatalogTest` | canonical chat/MCP inventory, projection aliases, schema validation, approval policy, dispatch, `fetch_url` browser approval versus immediate MCP execution, and additive legacy compatibility |
 
 ### JS unit tests (no browser required)
 
@@ -93,7 +93,7 @@ Playwright tests against a live wp-env instance on `http://localhost:9888`. Cove
 - **`Haydi_AI_Client`** — requires stubbing WordPress 7.0 AI Connector DTOs (`ModelMessage`, `UserMessage`, etc.) that are only available inside a running WP 7.0 instance.
 - **`FilesystemGuard` write/delete/move/copy/`backup_dir_recursive`** — require `wp_mkdir_p` and `WP_Filesystem` stubs; the happy paths are exercised by the integration tests instead. (`restore_latest_backup` is unit-tested.)
 - **`handle_chat` rate-limit (429), `MAX_LOOP` exhaustion, `MAX_MESSAGES_BYTES` trim** — require a live AI connector to exercise the agentic loop.
-- **`Haydi_Fetch_Url_Tool::fetch()` cURL-pin (`CURLOPT_RESOLVE`) and `redirection => 0` behaviour** — require a live HTTP transport; pre-request validation is unit-tested.
+- **`Haydi_Fetch_Url_Tool::fetch()` end-to-end cURL pin (`CURLOPT_RESOLVE`) and `redirection => 0` behaviour** — require a live HTTP transport; transport forcing, Fsockopen rejection, hook cleanup, and pre-request validation are unit-tested.
 - **Built-in write operations** (`write_file`, `edit_file`, `run_php`, etc.) via token auth are covered by integration tests; MCP tool execution for write tools is not yet unit-tested (requires filesystem + health-check stubs).
 - **`list_posts`, `list_users`, `list_options`** — new core read tools; covered by the integration test suite but not yet by dedicated unit tests.
 

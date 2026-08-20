@@ -428,6 +428,7 @@
     background: #fff;
     border: 1px solid #dcdcde;
     border-radius: 6px;
+    white-space: pre-wrap;
     word-break: break-all;
 }
 

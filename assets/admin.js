@@ -2139,6 +2139,19 @@
     // -------------------------------------------------------------------------
 
     var APPROVAL_PRESENTATIONS = {
+        fetch_url: {
+            targetField: 'url',
+        },
+        write_file: {
+            targetFields: [
+                { label: 'Target', field: 'path' },
+            ],
+        },
+        edit: {
+            targetFields: [
+                { label: 'Target', field: 'filePath' },
+            ],
+        },
         install_plugin: {
             icon:         'dashicons-download',
             targetField:  'slug',
@@ -2168,8 +2181,38 @@
         },
         run_query:  { icon: 'dashicons-database', tone: 'warning' },
         run_php:    { icon: 'dashicons-editor-code', tone: 'warning' },
-        delete_file: { icon: 'dashicons-trash', tone: 'danger' },
-        delete_dir:  { icon: 'dashicons-trash', tone: 'danger' },
+        delete_file: {
+            icon:         'dashicons-trash',
+            tone:         'danger',
+            targetFields: [
+                { label: 'Target', field: 'path' },
+            ],
+        },
+        delete_dir: {
+            icon:         'dashicons-trash',
+            tone:         'danger',
+            targetFields: [
+                { label: 'Target', field: 'path' },
+            ],
+        },
+        move_file: {
+            targetFields: [
+                { label: 'Source', field: 'src' },
+                { label: 'Destination', field: 'dest' },
+            ],
+        },
+        copy_file: {
+            targetFields: [
+                { label: 'Source', field: 'src' },
+                { label: 'Destination', field: 'dest' },
+            ],
+        },
+        restore_backup: {
+            targetFields: [
+                { label: 'Backup', field: 'backup_file' },
+                { label: 'Restore to', field: 'original_path' },
+            ],
+        },
     };
 
     function approvalPresentation(p) {
@@ -2211,13 +2254,26 @@
         return !!state.pending && state.pending.tool_use_id === p.tool_use_id;
     }
 
+    function approvalTargetText(args, presentation) {
+        if (Array.isArray(presentation.targetFields)) {
+            return presentation.targetFields.map(function (target) {
+                var value = args[target.field];
+                return value === undefined || value === null || value === ''
+                    ? ''
+                    : target.label + ': ' + String(value);
+            }).filter(Boolean).join('\n');
+        }
+
+        return presentation.targetField ? String(args[presentation.targetField] || '') : '';
+    }
+
     function showPendingApproval(p) {
         var presentation = approvalPresentation(p);
         var $section     = $('#wpc-action-section');
         var $target      = $('#wpc-action-target');
         var $details     = $('#wpc-action-details');
         var $payload     = $('#wpc-action-payload');
-        var target       = presentation.targetField ? p[presentation.targetField] : '';
+        var target       = approvalTargetText(approvalArguments(p), presentation);
 
         $('#wpc-action-icon')
             .attr('class', 'dashicons ' + presentation.icon);

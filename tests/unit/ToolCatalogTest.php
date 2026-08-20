@@ -7,6 +7,24 @@ use Brain\Monkey;
 use Brain\Monkey\Functions;
 use PHPUnit\Framework\TestCase;
 
+final class Haydi_Test_Fetch_Url_Tool extends Haydi_Fetch_Url_Tool {
+
+	public int $fetch_count = 0;
+
+	/** @var string[] */
+	public array $fetched_urls = array();
+
+	public function fetch_for_ai( string $url ): array|WP_Error {
+		++$this->fetch_count;
+		$this->fetched_urls[] = $url;
+
+		return array(
+			'url'     => $url,
+			'content' => 'Fixture content.',
+		);
+	}
+}
+
 final class ToolCatalogTest extends TestCase {
 
 	protected function setUp(): void {
@@ -268,6 +286,81 @@ final class ToolCatalogTest extends TestCase {
 		$this->assertSame( 'tool_not_approvable', $automatic->get_error_code() );
 		$this->assertInstanceOf( WP_Error::class, $unknown );
 		$this->assertSame( 'unknown_tool', $unknown->get_error_code() );
+	}
+
+	public function test_fetch_url_chat_returns_exact_url_proposal_without_fetching(): void {
+		$catalog = new Haydi_Tool_Catalog();
+		$tool    = new Haydi_Test_Fetch_Url_Tool( $this->createStub( Haydi_Audit_Logger::class ) );
+		$tool->register_tools( $catalog );
+		$url = 'https://example.com/reference?section=security';
+
+		$outcome = $catalog->dispatch(
+			Haydi_Tool_Catalog::CHAT,
+			'fetch_url',
+			array( 'url' => $url )
+		);
+
+		$this->assertSame( 0, $tool->fetch_count, 'Browser chat must not issue an HTTP request before approval.' );
+		$this->assertSame( 'action_proposal', $outcome['kind'] );
+		$this->assertSame(
+			array(
+				'tool_name' => 'fetch_url',
+				'label'     => 'Fetch URL',
+				'arguments' => array( 'url' => $url ),
+			),
+			$outcome['payload']
+		);
+		$this->assertSame(
+			array(
+				'action' => 'fetch_url_proposed',
+				'path'   => $url,
+				'reason' => '',
+			),
+			$outcome['audit']
+		);
+
+		$proposal = $catalog->action_proposals()['fetch_url'];
+		$this->assertSame( array( 'url' ), $proposal['fields'] );
+		$this->assertSame( 'haydi_execute_approved_tool', $proposal['ajax_action'] );
+		$this->assertSame( 'url', $proposal['log_path_field'] );
+	}
+
+	public function test_execute_approved_fetch_url_issues_the_fetch(): void {
+		$catalog = new Haydi_Tool_Catalog();
+		$tool    = new Haydi_Test_Fetch_Url_Tool( $this->createStub( Haydi_Audit_Logger::class ) );
+		$tool->register_tools( $catalog );
+		$url = 'https://example.com/approved-reference';
+
+		$outcome = $catalog->execute_approved( 'fetch_url', array( 'url' => $url ) );
+
+		$this->assertSame( 1, $tool->fetch_count );
+		$this->assertSame( array( $url ), $tool->fetched_urls );
+		$this->assertSame( 'result', $outcome['kind'] );
+		$this->assertSame(
+			array(
+				'url'     => $url,
+				'content' => 'Fixture content.',
+			),
+			$outcome['result']
+		);
+	}
+
+	public function test_fetch_url_mcp_dispatch_remains_immediate(): void {
+		$catalog = new Haydi_Tool_Catalog();
+		$tool    = new Haydi_Test_Fetch_Url_Tool( $this->createStub( Haydi_Audit_Logger::class ) );
+		$tool->register_tools( $catalog );
+		$url = 'https://example.com/mcp-reference';
+
+		$outcome = $catalog->dispatch(
+			Haydi_Tool_Catalog::MCP,
+			'haydi_fetch_url',
+			array( 'url' => $url )
+		);
+
+		$this->assertSame( 1, $tool->fetch_count );
+		$this->assertSame( array( $url ), $tool->fetched_urls );
+		$this->assertSame( 'result', $outcome['kind'] );
+		$this->assertSame( $url, $outcome['result']['url'] );
 	}
 
 	public function test_chat_action_proposal_responds_with_the_projected_tool_name(): void {

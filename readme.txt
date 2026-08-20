@@ -28,7 +28,7 @@ Haydi lets an AI agent manage your WordPress site from WP-Admin. Tell it what yo
 
 **How it works:**
 
-Read-only operations (listing files, reading files, fetching URLs, listing posts and users) run automatically. Every mutating action — plugin installs and any write/delete/SQL/PHP operation — pauses for human approval. You see a full diff or preview before clicking Apply.
+Most read-only operations (listing and reading files, listing posts and users) run automatically. In browser chat, fetching a URL pauses so you can inspect and approve the exact outbound URL before any request is sent. Every mutating action — plugin installs and any write/delete/SQL/PHP operation — also pauses for human approval. You see a full diff or preview before clicking Apply.
 
 Before any PHP file is written to disk, it is validated with `token_get_all()` to catch syntax errors. If the "Playground preflight" option is enabled, it is also tested inside a WordPress Playground sandbox first.
 
@@ -77,11 +77,11 @@ Yes. When you send a message, your prompt and relevant site context (file conten
 
 = Can the AI make changes without my approval? =
 
-By default, no. Every action that modifies your site — plugin installs and any write/delete/SQL/PHP operation — requires an explicit click to approve. Read-only operations (browsing files, listing posts and users, fetching URLs) run automatically.
+By default, no. Every action that modifies your site — plugin installs and any write/delete/SQL/PHP operation — requires an explicit click to approve. Read-only operations such as browsing files and listing posts or users run automatically, but URL fetches also require browser approval so you can inspect the exact outbound URL first.
 
 An **Auto-accept** toggle is available in the interface for users who want to let the AI apply a series of changes without pausing for each one. This setting is session-only and resets when the page is reloaded.
 
-When using the MCP or REST API with a token, write operations execute immediately — the API token itself is the approval gate, equivalent to a human clicking Apply. Tokens are bound to the user who generated them, and that user's Haydi access is rechecked on every request. Tokens created before issuer binding was introduced are invalid and must be regenerated. Tokens can be revoked at any time from Advanced settings in the Haydi sidebar.
+When using the MCP or REST API with a token, write operations and URL fetches execute immediately — the API token itself is the approval gate, equivalent to a human clicking Apply. Tokens are bound to the user who generated them, and that user's Haydi access is rechecked on every request. Tokens created before issuer binding was introduced are invalid and must be regenerated. Tokens can be revoked at any time from Advanced settings in the Haydi sidebar.
 
 = How do I connect Claude Code or another AI tool via MCP? =
 

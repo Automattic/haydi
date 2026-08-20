@@ -6,7 +6,8 @@
  * They are reproduced verbatim here — any change to the originals must be
  * reflected in the function definitions below.
  *
- * Functions under test: esc, chatTitle, styleVariationRefreshHint, ajaxFailureMessage.
+ * Functions under test: esc, chatTitle, styleVariationRefreshHint,
+ * ajaxFailureMessage, approvalTargetText.
  */
 
 'use strict';
@@ -92,6 +93,19 @@ function fallbackChatTitle(messages) {
 
 function chatTitle(messages, savedTitle) {
     return savedTitle || fallbackChatTitle(messages);
+}
+
+function approvalTargetText(args, presentation) {
+    if (Array.isArray(presentation.targetFields)) {
+        return presentation.targetFields.map(function (target) {
+            var value = args[target.field];
+            return value === undefined || value === null || value === ''
+                ? ''
+                : target.label + ': ' + String(value);
+        }).filter(Boolean).join('\n');
+    }
+
+    return presentation.targetField ? String(args[presentation.targetField] || '') : '';
 }
 
 function isThemeStyleVariationPath(path) {
@@ -298,6 +312,54 @@ test('styleVariationRefreshHint: prompts for Site Editor refresh after theme sty
 test('styleVariationRefreshHint: ignores non-style-variation files', () => {
     expect(styleVariationRefreshHint('/var/www/html/wp-content/themes/twentytwentyfive/theme.json')).toBe('');
     expect(styleVariationRefreshHint('/var/www/html/wp-content/plugins/example/styles/noir.json')).toBe('');
+});
+
+// ---------------------------------------------------------------------------
+// Approval target presentation
+// ---------------------------------------------------------------------------
+
+test('approvalTargetText: renders the exact authoritative single target', () => {
+    expect(approvalTargetText(
+        { path: '/var/www/html/wp-content/plugins/example/main.php' },
+        { targetFields: [{ label: 'Target', field: 'path' }] }
+    )).toBe('Target: /var/www/html/wp-content/plugins/example/main.php');
+});
+
+test('approvalTargetText: labels both source and destination paths', () => {
+    expect(approvalTargetText(
+        {
+            src:  '/var/www/html/wp-content/plugins/example/source.php',
+            dest: '/var/www/html/wp-content/plugins/example/destination.php',
+        },
+        {
+            targetFields: [
+                { label: 'Source', field: 'src' },
+                { label: 'Destination', field: 'dest' },
+            ],
+        }
+    )).toBe(
+        'Source: /var/www/html/wp-content/plugins/example/source.php\n'
+        + 'Destination: /var/www/html/wp-content/plugins/example/destination.php'
+    );
+});
+
+test('approvalTargetText: preserves legacy single-field targets such as fetch URLs', () => {
+    expect(approvalTargetText(
+        { url: 'https://example.test/reference?item=42' },
+        { targetField: 'url' }
+    )).toBe('https://example.test/reference?item=42');
+});
+
+test('approvalTargetText: omits missing target fields instead of showing placeholders', () => {
+    expect(approvalTargetText(
+        { original_path: '/var/www/html/wp-content/themes/example/functions.php' },
+        {
+            targetFields: [
+                { label: 'Backup', field: 'backup_file' },
+                { label: 'Restore to', field: 'original_path' },
+            ],
+        }
+    )).toBe('Restore to: /var/www/html/wp-content/themes/example/functions.php');
 });
 
 // ---------------------------------------------------------------------------

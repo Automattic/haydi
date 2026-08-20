@@ -37,6 +37,58 @@ class FetchUrlTest extends TestCase {
         return self::$method->invoke( self::$handler, $url );
     }
 
+    /**
+     * Capture the request-scoped transport hooks installed by fetch().
+     *
+     * @param array<string,array{callback:callable,priority:int,accepted_args:int}> $actions
+     * @param array<int,array{hook:string,callback:callable,priority:int}>           $removed
+     */
+    private function captureTransportHooks( array &$actions, array &$removed ): void {
+        Functions\when( 'wp_parse_url' )->alias( 'parse_url' );
+        Functions\when( 'add_action' )->alias(
+            static function ( string $hook, callable $callback, int $priority = 10, int $accepted_args = 1 ) use ( &$actions ): bool {
+                $actions[ $hook ] = array(
+                    'callback'      => $callback,
+                    'priority'      => $priority,
+                    'accepted_args' => $accepted_args,
+                );
+                return true;
+            }
+        );
+        Functions\when( 'remove_action' )->alias(
+            static function ( string $hook, callable $callback, int $priority = 10 ) use ( &$removed ): bool {
+                $removed[] = array(
+                    'hook'     => $hook,
+                    'callback' => $callback,
+                    'priority' => $priority,
+                );
+                return true;
+            }
+        );
+    }
+
+    /**
+     * Assert every temporary transport hook was removed with the same callback.
+     *
+     * @param array<string,array{callback:callable,priority:int,accepted_args:int}> $actions
+     * @param array<int,array{hook:string,callback:callable,priority:int}>           $removed
+     */
+    private function assertTransportHooksRemoved( array $actions, array $removed ): void {
+        $this->assertSame(
+            array(
+                'http_api_curl',
+                'requests-fsockopen.before_request',
+                'requests-requests.before_request',
+            ),
+            array_column( $removed, 'hook' )
+        );
+
+        foreach ( $removed as $removal ) {
+            $this->assertSame( $actions[ $removal['hook'] ]['callback'], $removal['callback'] );
+            $this->assertSame( $actions[ $removal['hook'] ]['priority'], $removal['priority'] );
+        }
+    }
+
     // -----------------------------------------------------------------------
     // filter_var layer — malformed URLs are rejected before parse
     // -----------------------------------------------------------------------
@@ -96,5 +148,87 @@ class FetchUrlTest extends TestCase {
 
         $this->assertInstanceOf( WP_Error::class, $result );
         $this->assertEquals( 'ssrf_blocked', $result->get_error_code() );
+    }
+
+    // -----------------------------------------------------------------------
+    // Requests transport enforcement — DNS pinning must never fall back
+    // -----------------------------------------------------------------------
+
+    public function test_forces_requests_to_curl_and_removes_scoped_hooks(): void {
+        $actions          = array();
+        $removed          = array();
+        $forced_transport = null;
+        $this->captureTransportHooks( $actions, $removed );
+
+        Functions\when( 'wp_remote_get' )->alias(
+            static function ( string $url ) use ( &$actions, &$forced_transport ): array {
+                $request_url = $url;
+                $headers     = array();
+                $data        = null;
+                $type        = 'GET';
+                $options     = array();
+                $actions['requests-requests.before_request']['callback']( $request_url, $headers, $data, $type, $options );
+                $forced_transport = $options['transport'] ?? null;
+
+                $handle = curl_init();
+                $actions['http_api_curl']['callback']( $handle, array(), $url );
+
+                return array( 'body' => '<p>Public response</p>' );
+            }
+        );
+        Functions\when( 'wp_remote_retrieve_response_code' )->justReturn( 200 );
+        Functions\when( 'wp_remote_retrieve_body' )->alias(
+            static fn( array $response ): string => (string) ( $response['body'] ?? '' )
+        );
+        Functions\when( 'wp_strip_all_tags' )->alias( 'strip_tags' );
+
+        $result = $this->fetch( 'http://93.184.216.34/reference' );
+
+        $this->assertSame( \WpOrg\Requests\Transport\Curl::class, $forced_transport );
+        $this->assertSame( 'Public response', $result );
+        $this->assertTransportHooksRemoved( $actions, $removed );
+    }
+
+    public function test_fails_closed_on_fsockopen_and_removes_scoped_hooks(): void {
+        $actions = array();
+        $removed = array();
+        $this->captureTransportHooks( $actions, $removed );
+
+        Functions\when( 'wp_remote_get' )->alias(
+            static function () use ( &$actions ) {
+                $actions['requests-fsockopen.before_request']['callback']();
+                return array();
+            }
+        );
+
+        $result = $this->fetch( 'http://93.184.216.34/reference' );
+
+        $this->assertInstanceOf( WP_Error::class, $result );
+        $this->assertSame( 'unpinned_http_transport', $result->get_error_code() );
+        $this->assertTransportHooksRemoved( $actions, $removed );
+    }
+
+    public function test_fails_closed_when_proxy_would_resolve_origin_and_removes_scoped_hooks(): void {
+        $actions = array();
+        $removed = array();
+        $this->captureTransportHooks( $actions, $removed );
+
+        Functions\when( 'wp_remote_get' )->alias(
+            static function ( string $url ) use ( &$actions ): array {
+                $request_url = $url;
+                $headers     = array();
+                $data        = null;
+                $type        = 'GET';
+                $options     = array( 'proxy' => new stdClass() );
+                $actions['requests-requests.before_request']['callback']( $request_url, $headers, $data, $type, $options );
+                return array();
+            }
+        );
+
+        $result = $this->fetch( 'http://93.184.216.34/reference' );
+
+        $this->assertInstanceOf( WP_Error::class, $result );
+        $this->assertSame( 'unpinned_http_transport', $result->get_error_code() );
+        $this->assertTransportHooksRemoved( $actions, $removed );
     }
 }

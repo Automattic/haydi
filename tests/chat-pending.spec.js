@@ -456,6 +456,146 @@ test.describe('Chat — pending proposal handling', () => {
         await ctx.close();
     });
 
+    test('file mutation and fetch approvals show their authoritative targets', async ({ browser }) => {
+        const ctx = await browser.newContext({ storageState: AUTH_FILE });
+        const cases = [
+            {
+                toolName: 'write_file',
+                label:    'Write File',
+                args:     {
+                    path:    '/var/www/html/wp-content/plugins/example/write.php',
+                    content: '<?php echo "write";',
+                    reason:  'Write the fixture.',
+                },
+                target: 'Target: /var/www/html/wp-content/plugins/example/write.php',
+            },
+            {
+                toolName: 'edit',
+                label:    'Edit File',
+                args:     {
+                    filePath:  '/var/www/html/wp-content/themes/example/functions.php',
+                    oldString: 'old value',
+                    newString: 'new value',
+                    reason:    'Edit the fixture.',
+                },
+                target: 'Target: /var/www/html/wp-content/themes/example/functions.php',
+            },
+            {
+                toolName: 'delete_file',
+                label:    'Delete File',
+                args:     {
+                    path:   '/var/www/html/wp-content/plugins/example/delete.php',
+                    reason: 'Delete the fixture.',
+                },
+                target: 'Target: /var/www/html/wp-content/plugins/example/delete.php',
+            },
+            {
+                toolName: 'delete_dir',
+                label:    'Delete Directory',
+                args:     {
+                    path:   '/var/www/html/wp-content/plugins/example/obsolete',
+                    reason: 'Delete the fixture directory.',
+                },
+                target: 'Target: /var/www/html/wp-content/plugins/example/obsolete',
+            },
+            {
+                toolName: 'move_file',
+                label:    'Move File',
+                args:     {
+                    src:    '/var/www/html/wp-content/plugins/example/source.php',
+                    dest:   '/var/www/html/wp-content/plugins/example/moved.php',
+                    reason: 'Move the fixture.',
+                },
+                target: 'Source: /var/www/html/wp-content/plugins/example/source.php\n'
+                    + 'Destination: /var/www/html/wp-content/plugins/example/moved.php',
+            },
+            {
+                toolName: 'copy_file',
+                label:    'Copy File',
+                args:     {
+                    src:    '/var/www/html/wp-content/themes/example/source.php',
+                    dest:   '/var/www/html/wp-content/themes/example/copied.php',
+                    reason: 'Copy the fixture.',
+                },
+                target: 'Source: /var/www/html/wp-content/themes/example/source.php\n'
+                    + 'Destination: /var/www/html/wp-content/themes/example/copied.php',
+            },
+            {
+                toolName: 'restore_backup',
+                label:    'Restore Backup',
+                args:     {
+                    backup_file:   'functions.php.2026-08-20_12-00-00.token.bak',
+                    original_path: '/var/www/html/wp-content/themes/example/functions.php',
+                    reason:        'Restore the fixture.',
+                },
+                target: 'Backup: functions.php.2026-08-20_12-00-00.token.bak\n'
+                    + 'Restore to: /var/www/html/wp-content/themes/example/functions.php',
+            },
+            {
+                toolName: 'fetch_url',
+                label:    'Fetch URL',
+                args:     {
+                    url: 'https://example.test/reference?item=42',
+                },
+                target: 'https://example.test/reference?item=42',
+            },
+        ];
+
+        for (const item of cases) {
+            const page = await ctx.newPage();
+            await page.goto(PLUGIN_URL);
+            await setupPage(page);
+
+            await page.route('**/admin-ajax.php', async (route) => {
+                const params = new URLSearchParams(route.request().postData() || '');
+                const action = params.get('action');
+
+                if (isChatAction(action)) {
+                    const messages = JSON.parse(params.get('messages') || '[]');
+                    return fulfillChat(route, action, {
+                        text:     `Prepared ${item.label}.`,
+                        messages: messages.concat([{
+                            role:    'assistant',
+                            content: [{
+                                type:  'tool_use',
+                                id:    `${TOOL_USE_ID}_${item.toolName}`,
+                                name:  item.toolName,
+                                input: item.args,
+                            }],
+                        }]),
+                        pending_action: {
+                            tool_use_id: `${TOOL_USE_ID}_${item.toolName}`,
+                            tool_name:   item.toolName,
+                            label:       item.label,
+                            arguments:   item.args,
+                            pre_results: [],
+                        },
+                    });
+                }
+
+                if (action === 'haydi_read_file') {
+                    return route.fulfill({
+                        status:      200,
+                        contentType: 'application/json',
+                        body:        JSON.stringify({ success: true, data: { content: 'old value' } }),
+                    });
+                }
+
+                return route.continue();
+            });
+
+            await page.fill('#wpc-chat-input', `prepare ${item.toolName}`);
+            await page.click('#wpc-btn-send');
+
+            const target = page.locator('#wpc-action-target');
+            await expect(target).toBeVisible();
+            await expect.poll(() => target.textContent()).toBe(item.target);
+            await page.close();
+        }
+
+        await ctx.close();
+    });
+
     test('declining the generic card resolves the exact provider Tool call without executing it', async ({ browser }) => {
         const ctx  = await browser.newContext({ storageState: AUTH_FILE });
         const page = await ctx.newPage();
