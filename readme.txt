@@ -3,7 +3,7 @@ Contributors: automattic, bor0, raicem
 Tags: ai, automation, assistant, site-management, mcp
 Requires at least: 7.0
 Tested up to: 7.0
-Stable tag: 1.2.1
+Stable tag: 1.2.2
 Requires PHP: 8.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -143,6 +143,13 @@ If you opt in to usage analytics, anonymised event data (actions taken, errors e
 No WordPress-bundled libraries (jQuery, Backbone, lodash, etc.) are duplicated by this plugin.
 
 == Changelog ==
+= 1.2.2 =
+* Released 2026-08-20.
+* Security: Haydi now enforces WordPress's mapped `edit_plugins` capability as a non-bypassable access floor and rechecks a token issuer's live access on every request. This restricts Multisite access to Super Admins, respects disabled file editing, and invalidates legacy unbound tokens.
+* Security: browser-chat URL fetches now pause for explicit approval and display the exact outbound URL. Token-authenticated REST and MCP fetches remain immediate because the token is their approval boundary.
+* Security: file mutation approval cards now prominently display the authoritative target, source, and destination paths that will be submitted.
+* Security: URL fetching now fails closed unless WordPress uses the DNS-pinned cURL transport, preventing a fallback to Fsockopen from reopening DNS-rebinding access to private addresses.
+
 = 1.2.1 =
 * Released 2026-08-20.
 * Security: the REST and MCP API (`/wp-json/haydi/v1/*`) now requires a valid Bearer token on every request; the fallback to logged-in-user capability checks has been removed. Provision a token from the Haydi settings page to use the API.
