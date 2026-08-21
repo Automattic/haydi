@@ -2753,29 +2753,67 @@
         return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + time;
     }
 
-    // Configure marked: escape raw HTML blocks (security), handle wpc-view:
-    // links as inline file-viewer buttons, and apply existing CSS classes to
-    // code blocks and tables so they match the rest of the chat UI.
+    // Render a markdown link: wpc-view: becomes an inline file-viewer button,
+    // http(s) and root-relative hrefs become anchors, anything else (javascript:,
+    // data:, …) degrades to its plain-text label.
+    function renderMarkdownLink(token) {
+        var href  = token.href || '';
+        var label = esc(token.text || href);
+        if (href.indexOf('wpc-view:') === 0) {
+            var path = href.slice('wpc-view:'.length);
+            return '<button type="button" class="wpc-view-toggle" data-path="' + esc(path) + '">' + label + '</button>';
+        }
+        if (href.indexOf('https://') === 0 || href.indexOf('http://') === 0) {
+            return '<a href="' + esc(href) + '" target="_blank" rel="noopener noreferrer">' + label + '</a>';
+        }
+        if (href.indexOf('/') === 0) {
+            return '<a href="' + esc(href) + '">' + label + '</a>';
+        }
+        return label;
+    }
+
+    // Longest blocked-image URL shown before eliding. The host — the part that
+    // matters for spotting an exfiltration attempt — leads the string, so a
+    // truncated tail never hides where the request was headed.
+    var BLOCKED_IMAGE_URL_MAX = 300;
+
+    // Render a markdown image as an inert placeholder naming its destination.
+    //
+    // Model output never becomes an <img>. Unlike a link, an <img> fetches the
+    // moment it is parsed — no click required — so its src is a zero-click
+    // channel for smuggling out whatever the model has read (query rows, file
+    // contents) by encoding it in the URL. That is directly reachable: fetch_url
+    // pulls untrusted web content into the model's context, and a prompt
+    // injection there controls the markdown that lands here.
+    //
+    // Restricting to same-origin is not sufficient. A same-origin <img> still
+    // issues an automatic credentialed GET to any endpoint on this site, and it
+    // follows redirects — so a single open redirect anywhere in WordPress or an
+    // installed plugin restores full cross-origin beaconing. No allowlist of
+    // ours can rule that out, so images are not rendered at all.
+    //
+    // The alt text is deliberately dropped: it is attacker-controlled and would
+    // let a crafted caption disguise the real destination. Only the URL shows.
+    function renderMarkdownImage(token) {
+        var href = String(token.href || '');
+        if (href.length > BLOCKED_IMAGE_URL_MAX) {
+            href = href.slice(0, BLOCKED_IMAGE_URL_MAX) + '…';
+        }
+        return '<span class="wpc-blocked-image">'
+            + esc('[image not shown — ' + (href || 'no source') + ']')
+            + '</span>';
+    }
+
+    // Configure marked: escape raw HTML blocks, put links through the scheme
+    // allowlist, replace images with an inert placeholder, and apply existing
+    // CSS classes to code blocks and tables so they match the rest of the chat UI.
     marked.use({
         renderer: {
             html: function (token) {
                 return esc(token.text || token.raw || '');
             },
-            link: function (token) {
-                var href  = token.href || '';
-                var label = esc(token.text || href);
-                if (href.indexOf('wpc-view:') === 0) {
-                    var path = href.slice('wpc-view:'.length);
-                    return '<button type="button" class="wpc-view-toggle" data-path="' + esc(path) + '">' + label + '</button>';
-                }
-                if (href.indexOf('https://') === 0 || href.indexOf('http://') === 0) {
-                    return '<a href="' + esc(href) + '" target="_blank" rel="noopener noreferrer">' + label + '</a>';
-                }
-                if (href.indexOf('/') === 0) {
-                    return '<a href="' + esc(href) + '">' + label + '</a>';
-                }
-                return label;
-            }
+            link: renderMarkdownLink,
+            image: renderMarkdownImage
         }
     });
 

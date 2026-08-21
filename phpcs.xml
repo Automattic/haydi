@@ -6,6 +6,8 @@
     <exclude-pattern>*/node_modules/*</exclude-pattern>
     <exclude-pattern>*/vendor/*</exclude-pattern>
     <exclude-pattern>*/tests/unit/*</exclude-pattern>
+    <!-- Git worktrees under .claude/ are full checkouts of this repo. -->
+    <exclude-pattern>*/.claude/worktrees/*</exclude-pattern>
 
     <arg name="extensions" value="php"/>
     <arg name="colors"/>

@@ -104,6 +104,7 @@ module.exports = [
                 require:     'readonly',
                 module:      'writable',
                 console:     'readonly',
+                __dirname:   'readonly',
             },
         },
         rules: {

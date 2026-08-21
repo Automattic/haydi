@@ -584,6 +584,16 @@
     white-space: normal;
 }
 
+/* Stand-in for a Markdown image, which is never rendered (see
+   renderMarkdownImage). Muted and non-interactive: it exists so a blocked
+   destination stays readable, not to invite a click. */
+.wpc-blocked-image {
+    color: #8c8f94;
+    font-style: italic;
+    font-size: 12px;
+    word-break: break-all;
+}
+
 .wpc-message--assistant a {
     color: #2271b1;
     text-decoration: underline;
