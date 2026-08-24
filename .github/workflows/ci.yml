@@ -7,9 +7,9 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: 'npm'
@@ -22,16 +22,16 @@ jobs:
 
       - run: npm ci --no-audit --no-fund
 
-      - uses: ramsey/composer-install@a8d0d959dab41457692a5e2041bd9b757a119e3f # 3.2.1
+      - uses: ramsey/composer-install@65e4f84970763564f46a70b8a54b90d033b3bdda # 4.0.0
 
       - run: npm run lint
 
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: 'npm'
@@ -44,11 +44,11 @@ jobs:
 
       - run: npm ci --no-audit --no-fund
 
-      - uses: ramsey/composer-install@a8d0d959dab41457692a5e2041bd9b757a119e3f # 3.2.1
+      - uses: ramsey/composer-install@65e4f84970763564f46a70b8a54b90d033b3bdda # 4.0.0
 
       - name: Cache Playwright browsers
         id: playwright-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
@@ -58,14 +58,14 @@ jobs:
         run: npx playwright install chromium
 
       - name: Cache wp-env downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/wp-env
           key: wp-env-${{ runner.os }}-${{ hashFiles('.wp-env.json') }}
 
       - name: Restore Docker image cache
         id: docker-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: ~/docker-cache
           key: docker-cache-${{ runner.os }}-${{ hashFiles('.wp-env.json') }}
@@ -97,7 +97,7 @@ jobs:
 
       - name: Save Docker image cache
         if: ${{ !cancelled() && steps.docker-cache.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: ~/docker-cache
           key: docker-cache-${{ runner.os }}-${{ hashFiles('.wp-env.json') }}
